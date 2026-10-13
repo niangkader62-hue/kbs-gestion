@@ -2114,7 +2114,7 @@ function App() {
           </>) : "Chargement de KBS Gestion…"}
         </div>
       ) : !unlocked ? (
-        <LoginScreen codes={codes} team={team} onUnlock={(uid) => { setCurrentUser(uid); setUnlocked(true); setTab("accueil"); }} />
+        <LoginScreen codes={codes} team={team} agency={agency} onUnlock={(uid) => { setCurrentUser(uid); setUnlocked(true); setTab("accueil"); }} />
       ) : (
       <div style={{ display: "flex", minHeight: "100vh" }}>
         {/* MENU LATERAL (ordinateur) */}
@@ -2256,11 +2256,48 @@ function App() {
 }
 
 /* ---------------------------------- LOGIN SCREEN ---------------------------------- */
-function LoginScreen({ onUnlock, codes, team }) {
+function LoginScreen({ onUnlock, codes, team, agency }) {
   const [who, setWho] = useState(team[0]?.id || "");
   const [pwd, setPwd] = useState("");
   const [error, setError] = useState(false);
+  const [mode, setMode] = useState("connexion"); // "connexion" | "inscription"
+  const [mail, setMail] = useState("");
+  const [authMsg, setAuthMsg] = useState(null);   // { ok, text }
+  const [authBusy, setAuthBusy] = useState(false);
+  const [pending, setPending] = useState(null);   // e-mail confirme mais pas encore autorise
   const member = team.find(m => m.id === who);
+
+  // Au retour de Google ou du lien recu par e-mail, Supabase ouvre une session :
+  // on rattache l'adresse a un membre de l'equipe (ou a l'agence = CEO). Sinon : en attente de validation.
+  useEffect(() => {
+    let alive = true;
+    const check = (session) => {
+      const em = (session?.user?.email || "").trim().toLowerCase();
+      if (!alive || !em) return;
+      const m = team.find(t => (t.email || "").trim().toLowerCase() === em);
+      if (m) { onUnlock(m.id); return; }
+      if ((agency?.email || "").trim().toLowerCase() === em) { onUnlock(team[0]?.id || null); return; }
+      setPending(em); setMode("inscription");
+    };
+    supabase.auth.getSession().then(({ data }) => check(data?.session)).catch(() => {});
+    const { data: sub } = supabase.auth.onAuthStateChange((_e, session) => check(session));
+    return () => { alive = false; sub?.subscription?.unsubscribe(); };
+  }, []);
+
+  async function signUpGoogle() {
+    setAuthBusy(true); setAuthMsg(null);
+    const { error: e } = await supabase.auth.signInWithOAuth({ provider: "google", options: { redirectTo: window.location.origin, queryParams: { prompt: "select_account" } } });
+    if (e) { setAuthBusy(false); setAuthMsg({ ok: false, text: "Connexion Google impossible : " + e.message }); }
+  }
+  async function signUpLink() {
+    const em = mail.trim();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(em)) { setAuthMsg({ ok: false, text: "Entre une adresse e-mail valide." }); return; }
+    setAuthBusy(true); setAuthMsg(null);
+    const { error: e } = await supabase.auth.signInWithOtp({ email: em, options: { emailRedirectTo: window.location.origin, shouldCreateUser: true } });
+    setAuthBusy(false);
+    setAuthMsg(e ? { ok: false, text: "Envoi impossible : " + e.message } : { ok: true, text: `Lien envoyé à ${em}. Ouvre ta boîte Gmail (pense au dossier Spam) et clique sur le lien pour créer ton compte.` });
+  }
+  async function leavePending() { await supabase.auth.signOut().catch(() => {}); setPending(null); setMode("connexion"); setAuthMsg(null); }
 
   // Entree avec : le code personnel du membre choisi, le code general de l'outil, ou le code maitre.
   function tryUnlock() {
@@ -2297,6 +2334,37 @@ function LoginScreen({ onUnlock, codes, team }) {
           </div>
         </div>
 
+        <div style={{ display: "flex", gap: 6, background: C.card, borderRadius: 14, padding: 4, marginBottom: 22 }}>
+          {[["connexion", "Connexion"], ["inscription", "Inscription"]].map(([k, l]) => (
+            <button key={k} onClick={() => { setMode(k); setAuthMsg(null); }} style={{ flex: 1, height: 40, border: "none", borderRadius: 11, cursor: "pointer", fontWeight: 700, fontSize: 14, background: mode === k ? C.gold : "transparent", color: mode === k ? "#011B45" : C.muted }}>{l}</button>
+          ))}
+        </div>
+
+        {mode === "inscription" ? (<>
+          {pending ? (<>
+            <div style={{ fontFamily: "Archivo, sans-serif", fontWeight: 800, fontSize: 22 }}>Compte créé ✓</div>
+            <div style={{ color: C.muted, fontSize: 13.5, lineHeight: 1.55, marginTop: 10 }}>
+              Ton adresse <b style={{ color: C.text }}>{pending}</b> est confirmée. Pour entrer dans l'outil, le CEO doit d'abord associer cette adresse à ton profil (Administration → Équipe). Préviens-le, puis reviens ici.
+            </div>
+            <button onClick={leavePending} className="kbs-tap" style={{ ...btnGold, width: "100%", height: 50, marginTop: 20 }}>Retour à la connexion</button>
+          </>) : (<>
+            <div style={{ fontFamily: "Archivo, sans-serif", fontWeight: 800, fontSize: 22 }}>Créer mon compte</div>
+            <button onClick={signUpGoogle} disabled={authBusy} className="kbs-tap" style={{ width: "100%", height: 54, marginTop: 18, borderRadius: 16, border: "none", background: "#fff", color: "#1f1f1f", fontWeight: 700, fontSize: 15, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 10 }}>
+              <svg width="20" height="20" viewBox="0 0 48 48" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9.1 3.6l6.8-6.8C35.8 2.4 30.3 0 24 0 14.6 0 6.5 5.4 2.6 13.2l7.9 6.1C12.4 13.6 17.7 9.5 24 9.5z"/><path fill="#4285F4" d="M46.5 24.5c0-1.6-.1-3.1-.4-4.5H24v9h12.7c-.6 3-2.3 5.5-4.8 7.2l7.6 5.9c4.4-4.1 7-10.1 7-17.6z"/><path fill="#FBBC05" d="M10.5 28.7A14.5 14.5 0 0 1 9.5 24c0-1.6.3-3.2.9-4.7l-7.9-6.1A24 24 0 0 0 0 24c0 3.9.9 7.5 2.6 10.8l7.9-6.1z"/><path fill="#34A853" d="M24 48c6.5 0 11.9-2.1 15.9-5.8l-7.6-5.9c-2.1 1.4-4.9 2.3-8.3 2.3-6.3 0-11.6-4.1-13.5-9.8l-7.9 6.1C6.5 42.6 14.6 48 24 48z"/></svg>
+              Continuer avec Google
+            </button>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, color: C.muted, fontSize: 12, margin: "18px 0" }}>
+              <span style={{ flex: 1, height: 1, background: C.border }} />ou<span style={{ flex: 1, height: 1, background: C.border }} />
+            </div>
+            <label htmlFor="kbs-mail" style={{ display: "block", fontSize: 12.5, color: C.muted, fontWeight: 600, marginBottom: 6 }}>Ton adresse Gmail</label>
+            <input id="kbs-mail" type="email" inputMode="email" autoComplete="email" placeholder="nom@gmail.com" value={mail}
+              onChange={e => { setMail(e.target.value); setAuthMsg(null); }}
+              onKeyDown={e => { if (e.key === "Enter") signUpLink(); }}
+              style={{ ...inputStyle, height: 52, fontSize: 16 }} />
+            <button onClick={signUpLink} disabled={authBusy} className="kbs-tap" style={{ ...btnGold, width: "100%", height: 54, marginTop: 14, fontSize: 15, opacity: authBusy ? .6 : 1 }}>Recevoir le lien d'inscription</button>
+            {authMsg && <div role="status" style={{ marginTop: 14, fontSize: 13, lineHeight: 1.5, borderRadius: 14, padding: "12px 14px", background: authMsg.ok ? "rgba(92,192,140,.12)" : "rgba(221,106,84,.12)", color: authMsg.ok ? C.greenLight : C.rustLight }}>{authMsg.text}</div>}
+          </>)}
+        </>) : (<>
         <div style={{ fontFamily: "Archivo, sans-serif", fontWeight: 800, fontSize: 22 }}>Qui se connecte ?</div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 8, marginTop: 14 }}>
           {team.map(m => (
@@ -2316,6 +2384,7 @@ function LoginScreen({ onUnlock, codes, team }) {
         <div style={{ color: C.muted, textAlign: "center", fontSize: 12, marginTop: 8 }}>Chaque membre a son code. Le code général de l'outil et le code maître fonctionnent aussi.</div>
 
         <button onClick={tryUnlock} className="kbs-tap" style={{ ...btnGold, width: "100%", height: 54, marginTop: 20, fontSize: 15 }}>Entrer</button>
+        </>)}
 
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 24, background: "rgba(92,192,140,.12)", borderRadius: 16, padding: "12px 14px", fontSize: 12.5, lineHeight: 1.45 }}>
           <Shield size={20} color={C.greenLight} style={{ flexShrink: 0 }} />
@@ -5843,7 +5912,7 @@ function TabAdministration({ section, caisse, setCaisse, team, setTeam, codes, s
   const [closeMonthDone, setCloseMonthDone] = useState(false);
   const [form, setForm] = useState({ name: "", role: "", checklistText: "" });
   const [editingId, setEditingId] = useState(null);
-  const [editForm, setEditForm] = useState({ name: "", role: "", checklistText: "", code: "", commissionPct: "" });
+  const [editForm, setEditForm] = useState({ name: "", role: "", checklistText: "", code: "", email: "", commissionPct: "" });
   const [rateForm, setRateForm] = useState(commissionRate);
   const [rateSaved, setRateSaved] = useState(false);
   const [codesForm, setCodesForm] = useState(codes);
@@ -5878,14 +5947,14 @@ function TabAdministration({ section, caisse, setCaisse, team, setTeam, codes, s
   }
   function startEdit(m) {
     setEditingId(m.id);
-    setEditForm({ name: m.name, role: m.role, checklistText: (m.checklist || []).join(", "), code: m.code || autoCode(m.name),
+    setEditForm({ name: m.name, role: m.role, checklistText: (m.checklist || []).join(", "), code: m.code || autoCode(m.name), email: m.email || "",
       commissionPct: m.commissionPct != null ? m.commissionPct : commissionRate });
   }
   function saveEdit(id) {
     const checklist = editForm.checklistText.split(",").map(s => s.trim()).filter(Boolean);
     const pctRaw = Number(editForm.commissionPct);
     const pct = Number.isFinite(pctRaw) && editForm.commissionPct !== "" ? Math.max(0, Math.min(100, pctRaw)) : commissionRate;
-    setTeam(team.map(m => m.id === id ? { ...m, name: editForm.name || m.name, role: editForm.role, code: editForm.code || m.code, commissionPct: pct, checklist } : m));
+    setTeam(team.map(m => m.id === id ? { ...m, name: editForm.name || m.name, role: editForm.role, code: editForm.code || m.code, email: (editForm.email || "").trim(), commissionPct: pct, checklist } : m));
     setEditingId(null);
   }
   async function saveRate() {
@@ -6011,6 +6080,7 @@ function TabAdministration({ section, caisse, setCaisse, team, setTeam, codes, s
                       <input type="number" min="0" max="100" placeholder={`Commission (défaut ${commissionRate}%)`} value={editForm.commissionPct} onChange={e => setEditForm({ ...editForm, commissionPct: e.target.value })} style={{ ...inputStyle, flex: 1 }} />
                       <span style={{ fontSize: 13, color: C.muted }}>%</span>
                     </div>
+                    <input type="email" placeholder="Adresse Gmail (pour l'inscription Google)" value={editForm.email || ""} onChange={e => setEditForm({ ...editForm, email: e.target.value })} style={inputStyle} />
                     <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
                       <KeyRound size={14} color={C.muted} />
                       <CodeInput placeholder="Code personnel (checklist)" value={editForm.code} onChange={e => setEditForm({ ...editForm, code: e.target.value.toUpperCase() })} style={{ flex: 1 }} />

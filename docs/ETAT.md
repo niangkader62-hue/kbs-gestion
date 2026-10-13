@@ -6,6 +6,22 @@ Les entrées les plus récentes sont en haut.
 
 ---
 
+## 2026-10-13 (suite 3) — Inscription avec Google / lien Gmail
+
+- Écran de connexion : onglets **Connexion** (code, inchangé) et **Inscription**.
+- Inscription : bouton **Continuer avec Google** (Supabase OAuth) ou saisie de
+  l'adresse Gmail → **lien envoyé par e-mail** (Supabase magic link) à cliquer.
+- Au retour, l'adresse est rattachée à un membre (Administration → Équipe →
+  modifier → « Adresse Gmail ») ou à l'agence (= CEO). Sinon : « Compte créé »
+  en attente d'association par le CEO (aucun accès automatique).
+- **À faire dans Supabase** (Authentication) : activer le provider **Google**
+  (Client ID/Secret Google Cloud), mettre l'URL du site dans *Site URL* et
+  *Redirect URLs*, vérifier l'envoi des e-mails (SMTP).
+- Limite connue : les données restent dans `kbs_storage` avec la clé publique ;
+  le contrôle d'accès est côté application seulement (RLS à faire avec les vraies tables).
+
+---
+
 ## 2026-10-13 (suite 2) — KBSAUTO devient « KBS Gestion » (maquette validée)
 
 Maquette validée par Kader : https://claude.ai/artifact/Dggsvv9GEx9kuLGZqHnCWt
