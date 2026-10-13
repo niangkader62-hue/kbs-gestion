@@ -7103,6 +7103,190 @@ function TabStock({ products, setProducts, stockMoves, setStockMoves, team, curr
 }
 
 /* ---------------------------------- VENDRE ---------------------------------- */
+/* ---------------------------------- VENTES : annuler / modifier ---------------------------------- */
+// Paiement cree par la vente (meme id + 1, ou meme numero de recu).
+function salePayment(p, a) {
+  const pays = paymentsOf(p);
+  return pays.find(x => x.id === a.id + 1) || (a.recNumero ? pays.find(x => x.recNumero && x.recNumero === a.recNumero) : null) || null;
+}
+// Annule (next = null) ou modifie une vente deja faite, en gardant tout synchronise :
+// total du client, paiement de la vente, stock (mouvement trace), historique du client.
+function changeSale({ prospects, products, clientId, achatId, next, by }) {
+  const p = prospects.find(x => String(x.id) === String(clientId));
+  const a = p && (p.achats || []).find(x => x.id === achatId);
+  if (!p || !a) return null;
+  const today = new Date().toISOString().slice(0, 10);
+  const oldPay = salePayment(p, a);
+  const ref = a.recNumero || clientFullName(p);
+
+  // Stock : difference entre les anciennes et les nouvelles quantites (positif = retour en stock).
+  const qty = (items) => { const m = new Map(); (items || []).forEach(it => { if (it.productId != null) m.set(it.productId, (m.get(it.productId) || 0) + (Number(it.qte) || 0)); }); return m; };
+  const before = qty(a.items), after = qty(next ? next.items : []);
+  let cur = products; const moves = [];
+  new Set([...before.keys(), ...after.keys()]).forEach(pid => {
+    const diff = (before.get(pid) || 0) - (after.get(pid) || 0);
+    const prod = cur.find(x => x.id === pid);
+    if (!diff || !prod || !hasStock(prod)) return;
+    const b = Number(prod.stock) || 0, af = b + diff;
+    cur = cur.map(x => x.id === pid ? { ...x, stock: af } : x);
+    moves.push({ id: Date.now() + Math.random(), date: new Date().toISOString(), productId: pid, productName: prod.nom, type: next ? "correction" : "annulation", delta: diff, before: b, after: af, motif: next ? "Vente modifiée" : "Vente annulée", by, ref });
+  });
+
+  const oldTotal = Number(a.total) || 0;
+  let pays, achats, prixTotal, note;
+  if (!next) {
+    pays = paymentsOf(p).filter(x => x !== oldPay);
+    achats = (p.achats || []).filter(x => x.id !== achatId);
+    prixTotal = Math.max(0, prixTotalOf(p) - oldTotal);
+    note = `Vente annulée (${money(oldTotal)}${a.recNumero ? `, reçu ${a.recNumero}` : ""})${by ? ` par ${by}` : ""}`;
+  } else {
+    const sousTotal = next.items.reduce((s, it) => s + (Number(it.prix) || 0) * (Number(it.qte) || 0), 0);
+    const remise = Math.min(sousTotal, Math.max(0, Number(next.remise) || 0));
+    const total = sousTotal - remise;
+    const paye = Math.max(0, Number(next.paye) || 0);
+    achats = (p.achats || []).map(x => x.id === achatId ? { ...x, items: next.items, sousTotal, remise, total, modifieLe: today } : x);
+    prixTotal = Math.max(0, prixTotalOf(p) - oldTotal) + total;
+    if (oldPay) {
+      pays = paye > 0 ? paymentsOf(p).map(x => x === oldPay ? { ...x, montant: paye, mode: next.mode || x.mode } : x) : paymentsOf(p).filter(x => x !== oldPay);
+    } else {
+      const recNumero = nextNumero("REC", prospects.flatMap(paymentsOf).map(x => ({ numero: x.recNumero })), today);
+      pays = paye > 0 ? [...paymentsOf(p), { id: a.id + 1, date: today, montant: paye, mode: next.mode || PAY_MODES[0], recNumero, note: "Vente modifiée" }] : paymentsOf(p);
+      if (paye > 0) achats = achats.map(x => x.id === achatId ? { ...x, recNumero } : x);
+    }
+    note = `Vente modifiée : ${money(oldTotal)} → ${money(total)}${by ? ` par ${by}` : ""}`;
+  }
+
+  const hist = [...(p.historique || []), { id: Date.now(), date: today, note }];
+  let nextProspects;
+  if (!next && p.source === "vente" && achats.length === 0 && pays.length === 0) {
+    nextProspects = prospects.filter(x => x.id !== p.id); // client cree par cette seule vente
+  } else {
+    let up = withPayments({ ...p, achats, prixTotal, historique: hist }, pays);
+    const paid = Number(up.montant) || 0;
+    if (up.statut === "Payé" && prixTotal > 0 && paid < prixTotal) up = { ...up, statut: paid > 0 ? "En discussion" : "Prospect" };
+    nextProspects = prospects.map(x => x.id === p.id ? up : x);
+  }
+  const updated = nextProspects.find(x => x.id === p.id);
+  const trop = updated ? (Number(updated.montant) || 0) - prixTotalOf(updated) : 0;
+  return { prospects: nextProspects, products: cur, moves, trop: trop > 0 && prixTotalOf(updated) >= 0 ? trop : 0 };
+}
+
+function SalesHistory({ prospects, setProspects, products, setProducts, setStockMoves, team, currentUser, codes, agency, onBack }) {
+  const [editing, setEditing] = useState(null); // { clientId, achatId, items, remise, paye, mode }
+  const [msg, setMsg] = useState("");
+  const by = (team.find(m => m.id === currentUser) || {}).name || "";
+  const sales = prospects.flatMap(p => (p.achats || []).map(a => ({ p, a, pay: salePayment(p, a) })))
+    .sort((x, y) => String(y.a.date).localeCompare(String(x.a.date)) || y.a.id - x.a.id);
+
+  function askCode(action) {
+    const c = window.prompt(`${action} une vente : code du CEO`);
+    if (c == null) return false;
+    if (!codeMatches(c, codes.ceo)) { window.alert("Code incorrect."); return false; }
+    return true;
+  }
+  function apply(res, text) {
+    if (!res) return;
+    setProspects(res.prospects);
+    if (res.moves.length) { setProducts(res.products); setStockMoves(prev => [...prev, ...res.moves]); }
+    setMsg(text + (res.trop > 0 ? ` Attention : le client a payé ${money(res.trop)} de plus que le nouveau total, pense à le rembourser.` : ""));
+  }
+  function cancel(s) {
+    if (!askCode("Annuler")) return;
+    if (!window.confirm(`Annuler la vente de ${money(s.a.total)} à ${clientFullName(s.p)} ?\nLe montant est retiré du client, le paiement est supprimé et les produits reviennent en stock.`)) return;
+    apply(changeSale({ prospects, products, clientId: s.p.id, achatId: s.a.id, next: null, by }), "Vente annulée ✓ Montants et stock mis à jour.");
+  }
+  function startEdit(s) {
+    if (!askCode("Modifier")) return;
+    setMsg("");
+    setEditing({ clientId: s.p.id, achatId: s.a.id, items: (s.a.items || []).map(it => ({ ...it })), remise: s.a.remise || 0, paye: s.pay ? s.pay.montant : 0, mode: (s.pay && s.pay.mode) || PAY_MODES[0] });
+  }
+  function saveEdit() {
+    const items = editing.items.filter(it => (Number(it.qte) || 0) > 0).map(it => ({ ...it, qte: Number(it.qte) || 0, prix: Number(it.prix) || 0 }));
+    if (!items.length) { window.alert("La vente n'a plus d'article : utilise « Annuler la vente »."); return; }
+    apply(changeSale({ prospects, products, clientId: editing.clientId, achatId: editing.achatId, next: { ...editing, items }, by }), "Vente modifiée ✓ Montants et stock mis à jour.");
+    setEditing(null);
+  }
+
+  if (editing) {
+    const sub = editing.items.reduce((s, it) => s + (Number(it.prix) || 0) * (Number(it.qte) || 0), 0);
+    const tot = Math.max(0, sub - (Number(editing.remise) || 0));
+    const reste = Math.max(0, tot - (Number(editing.paye) || 0));
+    const setItem = (i, patch) => setEditing({ ...editing, items: editing.items.map((it, j) => j === i ? { ...it, ...patch } : it) });
+    const lbl = { display: "block", fontSize: 12.5, color: C.muted, margin: "14px 0 6px 2px", fontWeight: 600 };
+    return (
+      <div style={{ maxWidth: 560, margin: "0 auto" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
+          <button onClick={() => setEditing(null)} aria-label="Retour" style={{ width: 40, height: 40, borderRadius: 13, background: C.card, border: "none", color: C.text, display: "grid", placeItems: "center", cursor: "pointer" }}><ChevronLeft size={20} /></button>
+          <div style={{ fontFamily: "Archivo, sans-serif", fontSize: 21, fontWeight: 800 }}>Modifier la vente</div>
+        </div>
+        <div style={{ background: C.card, borderRadius: 20, padding: "6px 14px" }}>
+          {editing.items.map((it, i) => (
+            <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 0", borderTop: i ? `1px solid ${C.border}` : "none", fontSize: 13.5, flexWrap: "wrap" }}>
+              <div style={{ flex: "1 1 140px", minWidth: 0, fontWeight: 600 }}>{it.label}</div>
+              <button onClick={() => setItem(i, { qte: Math.max(0, (Number(it.qte) || 0) - 1) })} aria-label="Moins" style={{ width: 32, height: 32, borderRadius: 10, background: C.card2, border: "none", color: C.text, display: "grid", placeItems: "center", cursor: "pointer" }}>{Number(it.qte) <= 1 ? <Trash2 size={14} /> : <Minus size={15} />}</button>
+              <b style={{ width: 24, textAlign: "center", color: Number(it.qte) ? C.text : C.rustLight }}>{it.qte}</b>
+              <button onClick={() => setItem(i, { qte: (Number(it.qte) || 0) + 1 })} aria-label="Plus" style={{ width: 32, height: 32, borderRadius: 10, background: C.card2, border: "none", color: C.text, display: "grid", placeItems: "center", cursor: "pointer" }}><Plus size={15} /></button>
+              <input type="number" inputMode="numeric" value={it.prix} onChange={e => setItem(i, { prix: e.target.value })} aria-label={`Prix de ${it.label}`} style={{ ...inputStyle, width: 100, padding: "8px 10px" }} />
+            </div>
+          ))}
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderTop: `1px solid ${C.border}`, gap: 8 }}>
+            <span style={{ color: C.muted }}>Remise</span>
+            <input type="number" inputMode="numeric" value={editing.remise} onChange={e => setEditing({ ...editing, remise: e.target.value })} aria-label="Remise" style={{ ...inputStyle, width: 120, padding: "8px 10px" }} />
+          </div>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderTop: `1px solid ${C.border}` }}>
+            <span style={{ fontFamily: "Archivo, sans-serif", fontWeight: 800, fontSize: 16 }}>Nouveau total</span>
+            <span style={{ fontFamily: "Archivo, sans-serif", fontWeight: 800, fontSize: 21, color: C.goldLight }}>{money(tot)}</span>
+          </div>
+        </div>
+        <span style={lbl}>Montant payé pour cette vente</span>
+        <input type="number" inputMode="numeric" value={editing.paye} onChange={e => setEditing({ ...editing, paye: e.target.value })} aria-label="Montant payé" style={inputStyle} />
+        <span style={lbl}>Moyen de paiement</span>
+        <select value={editing.mode} onChange={e => setEditing({ ...editing, mode: e.target.value })} style={inputStyle}>{PAY_MODES.map(m => <option key={m} value={m}>{m}</option>)}</select>
+        {reste > 0 && <div style={{ marginTop: 10, ...tint.or, borderRadius: 14, padding: "10px 12px", fontSize: 13, color: C.text }}>Reste à payer sur cette vente : <b>{money(reste)}</b></div>}
+        <button onClick={saveEdit} className="kbs-tap" style={{ ...btnGold, width: "100%", height: 54, marginTop: 16 }}><Save size={17} /> Enregistrer les modifications</button>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ maxWidth: 640, margin: "0 auto" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+        <button onClick={onBack} aria-label="Retour" style={{ width: 40, height: 40, borderRadius: 13, background: C.card, border: "none", color: C.text, display: "grid", placeItems: "center", cursor: "pointer" }}><ChevronLeft size={20} /></button>
+        <div style={{ fontFamily: "Archivo, sans-serif", fontSize: 21, fontWeight: 800 }}>Ventes faites</div>
+      </div>
+      <div style={{ color: C.muted, fontSize: 12.5, marginBottom: 10 }}>Annuler ou modifier une vente met à jour le client, les montants payés et le stock. Le code du CEO est demandé.</div>
+      {msg && <div style={{ ...tint.ok, borderRadius: 14, padding: "10px 12px", fontSize: 13, color: C.text, marginBottom: 10 }}>{msg}</div>}
+      {sales.length === 0 && <Card><div style={{ color: C.muted }}>Aucune vente ce mois-ci.</div></Card>}
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        {sales.map(({ p, a, pay }) => {
+          const payé = pay ? Number(pay.montant) || 0 : 0;
+          const reste = Math.max(0, (Number(a.total) || 0) - payé);
+          return (
+            <div key={`${p.id}-${a.id}`} style={{ background: C.card, borderRadius: 16, padding: "12px 13px" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+                <div style={{ minWidth: 0 }}>
+                  <b>{clientFullName(p)}</b>
+                  <div style={{ color: C.muted, fontSize: 12 }}>{frDate(a.date)}{a.recNumero ? ` · ${a.recNumero}` : ""}{a.vendeur ? ` · ${a.vendeur}` : ""}{a.modifieLe ? " · modifiée" : ""}</div>
+                </div>
+                <div style={{ textAlign: "right" }}>
+                  <b style={{ fontFamily: "Archivo, sans-serif", color: C.goldLight }}>{money(a.total)}</b>
+                  <div style={{ fontSize: 11.5, color: reste > 0 ? C.rustLight : C.greenLight }}>{reste > 0 ? `reste ${numFr(reste)}` : "payé"}</div>
+                </div>
+              </div>
+              <div style={{ color: C.muted, fontSize: 12.5, marginTop: 4 }}>{(a.items || []).map(it => `${it.qte} × ${it.label}`).join(", ")}</div>
+              <div style={{ display: "flex", gap: 6, marginTop: 9, flexWrap: "wrap" }}>
+                {pay && <button onClick={() => buildRecuPDF(recuData(p, pay), agency, BRAND_LOGO)} style={{ ...iconBtn, display: "flex", alignItems: "center", gap: 5, padding: "8px 11px" }}><FileText size={14} /> Reçu</button>}
+                <button onClick={() => startEdit({ p, a, pay })} style={{ ...iconBtn, display: "flex", alignItems: "center", gap: 5, padding: "8px 11px", color: C.goldLight, borderColor: C.gold }}><Pencil size={14} /> Modifier</button>
+                <button onClick={() => cancel({ p, a, pay })} style={{ ...iconBtn, display: "flex", alignItems: "center", gap: 5, padding: "8px 11px", color: C.rustLight, borderColor: "rgba(255,143,130,.5)" }}><X size={14} /> Annuler la vente</button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function TabVendre({ products, setProducts, stockMoves, setStockMoves, prospects, setProspects, team, currentUser, codes, agency, go, pricing }) {
   const [step, setStep] = useState("catalogue"); // catalogue | encaisser | recu
   const [cart, setCart] = useState([]);          // [{ key, productId, label, prix, qte }]
@@ -7228,6 +7412,11 @@ function TabVendre({ products, setProducts, stockMoves, setStockMoves, prospects
     setStep("recu");
   }
 
+  /* ---- Ventes faites (annuler / modifier) ---- */
+  if (step === "ventes") {
+    return <SalesHistory prospects={prospects} setProspects={setProspects} products={products} setProducts={setProducts} setStockMoves={setStockMoves} team={team} currentUser={currentUser} codes={codes} agency={agency} onBack={() => setStep("catalogue")} />;
+  }
+
   /* ---- Recu ---- */
   if (step === "recu" && lastSale) {
     const r = lastSale.recu;
@@ -7267,6 +7456,7 @@ function TabVendre({ products, setProducts, stockMoves, setStockMoves, prospects
           </div>
           <button onClick={resetSale} className="kbs-tap" style={{ ...btnGold, height: 52 }}>Nouvelle vente</button>
           <button onClick={() => { resetSale(); go("crm"); }} style={{ ...iconBtn, padding: 10 }}>Voir la fiche du client</button>
+          <button onClick={() => { resetSale(); setStep("ventes"); }} style={{ ...iconBtn, padding: 10 }}>Annuler ou modifier cette vente</button>
         </div>
       </div>
     );
@@ -7359,9 +7549,13 @@ function TabVendre({ products, setProducts, stockMoves, setStockMoves, prospects
   }
 
   /* ---- Catalogue ---- */
+  const nbVentes = prospects.reduce((s, p) => s + (p.achats || []).length, 0);
   return (
     <div>
       {scan && <BarcodeScanner onCode={onScanned} onClose={() => setScan(false)} />}
+      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 10 }}>
+        <button onClick={() => setStep("ventes")} style={{ ...iconBtn, display: "flex", alignItems: "center", gap: 6, padding: "9px 13px", fontWeight: 700 }}><History size={15} /> Ventes faites ({nbVentes}) · annuler / modifier</button>
+      </div>
       <div style={{ display: "flex", alignItems: "center", gap: 10, height: 50, borderRadius: 15, border: `1px solid ${C.border}`, background: C.surf, padding: "0 5px 0 14px", color: C.muted }}>
         <Search size={19} />
         <input ref={searchRef} placeholder="Nom du produit ou code-barres" value={search} onChange={e => setSearch(e.target.value)} onKeyDown={onSearchKey} style={{ flex: 1, background: "transparent", border: "none", color: C.text, fontSize: 14.5, minWidth: 0, outline: "none" }} />
