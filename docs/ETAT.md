@@ -219,3 +219,20 @@ Branche `ccr-5b04f8c0-vt8y8v` (pas encore fusionnée dans `main`).
 - Un client créé par la seule vente annulée (comptoir ou nouveau, `source: "vente"`) est retiré.
 - Si le client a payé plus que le nouveau total, un message rappelle de le rembourser.
 - Les ventes des mois archivés ne sont pas modifiables ici (les archives se corrigent dans Archives).
+
+## 2026-10-13 — Ordinateur, tablette, iPhone ; écran Récupération
+
+- **Ordinateur** :
+  - suppression de l'ancien `index.css`, qui forçait une largeur maximale de 880 px et le fond gris #141316 ;
+  - contenu jusqu'à 1240 px de large ;
+  - connexion en deux colonnes (présentation + carte de connexion) ;
+  - accueil en deux colonnes, avec « Derniers encaissements » ;
+  - calendrier en deux colonnes (grille + détail du jour).
+- **Tablette (700 px et plus)** : plus de marges, barre du bas conservée sous 900 px.
+- **iPhone** :
+  - `viewport-fit=cover` et balises Apple (application plein écran, barre d'état) ;
+  - marges de sécurité (`env(safe-area-inset-*)`) pour l'en-tête, le menu latéral, la barre du bas et le bandeau de mise à jour ;
+  - champs en 16 px sur iOS, pour éviter le zoom automatique.
+- **Récupération** :
+  - quand rien n'est trouvé, l'écran explique clairement ce que cela veut dire et quoi faire ;
+  - la liste brute des lignes de la base est repliée dans « Détails techniques ».
