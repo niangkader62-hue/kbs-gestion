@@ -176,3 +176,10 @@ Branche `ccr-5b04f8c0-vt8y8v` (pas encore fusionnée dans `main`).
 - Icônes PNG régénérées dans `public/` (icon-192, icon-512, maskable, apple-touch-icon, favicon-32).
 - Le logo complet KBS Digital Agency (`BRAND_LOGO`) reste sur les reçus, devis, factures et le ticket de caisse.
 - Pour voir la nouvelle icône sur un téléphone : supprimer le raccourci et réinstaller l'app depuis le navigateur.
+
+## 2026-10-13 — Sauvegardes, historique, clôture et mise à jour
+
+- **Sauvegardes & historique** (Administration) : la liste de toutes les sauvegardes `backup:*` (automatique du jour, manuelle, avant clôture, avant changement de mois, avant restauration). Chaque ligne a deux boutons, Télécharger (fichier JSON) et Restaurer. Avant chaque restauration, les données actuelles sont sauvegardées. Le mois en cours (`kbs:period`) n'est jamais restauré.
+- **Sauvegarde quotidienne** : faite à la première ouverture du jour, puis vérifiée toutes les 15 min et au retour sur l'app, pour couvrir une app restée ouverte d'un jour à l'autre.
+- **Clôture** : l'écran s'appelle maintenant « Clôture & remise à zéro ». Une sauvegarde `backup:avant-cloture:…` est faite avant chaque clôture manuelle.
+- **Mise à jour** : `useAppUpdate` relit `index.html` sans cache et compare le fichier `/assets/index-*.js` annoncé avec celui chargé. La vérification se fait au chargement, toutes les 5 min et au retour sur l'app. S'il y a une nouvelle version, un bandeau orange « Mettre à jour maintenant » apparaît, même sur l'écran de connexion. Il y a aussi une carte « Mise à jour de l'application » dans le Menu et un bouton dans le menu latéral. `__BUILD_TIME__` (vite.config.js) affiche la date de la version.
