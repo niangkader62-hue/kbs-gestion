@@ -1001,6 +1001,7 @@ function backupKind(key) {
   if (key.startsWith("backup:avant-cloture:")) return { label: "Avant clôture du mois", kind: "bl" };
   if (key.startsWith("backup:avant-restauration:")) return { label: "Avant restauration", kind: "or" };
   if (key.startsWith("backup:manuelle:")) return { label: "Manuelle", kind: "or" };
+  if (key.startsWith("backup:avant-suppression:")) return { label: "Avant suppression d'archive", kind: "ko" };
   return { label: "Sauvegarde", kind: "gr" };
 }
 
@@ -1822,7 +1823,11 @@ export default function App() {
     if (next.id) saveShared(`archive:${next.id}`, next).then(err => { if (err) setSaveError(err); });
     setArchives(prev => (prev || []).map(x => (x.id || x.period) === (a.id || a.period) ? next : x));
   }
-  function deleteArchive(a) {
+  async function deleteArchive(a) {
+    // Copie complete d'abord (Sauvegardes & historique -> « Avant suppression d'archive ») :
+    // une archive supprimee par erreur se restaure en un clic.
+    const err = await backupNow("avant-suppression");
+    if (err) { setSaveError("Suppression annulée : sauvegarde impossible (" + err + ")"); return; }
     setArchives(prev => (prev || []).filter(x => (x.id || x.period) !== (a.id || a.period)));
     if (a.id) deleteShared(`archive:${a.id}`);
   }
@@ -1993,11 +1998,12 @@ export default function App() {
     adminReset: { label: "Clôture & remise à zéro", icon: Archive },
     formation: { label: "Formation", icon: BookOpen },
     archives: { label: "Archives", icon: Archive },
+    calendrier: { label: "Calendrier", icon: CalendarDays },
   };
 
   // Familles de modules (menu, menu lateral, sous-navigation).
   const CATEGORIES = [
-    { id: "ventes", label: "Ventes & finances", icon: Wallet, tabs: ["vendre", "crm", "devis", "factures", "tresorerie", "dettes", "archives"] },
+    { id: "ventes", label: "Ventes & finances", icon: Wallet, tabs: ["vendre", "crm", "calendrier", "devis", "factures", "tresorerie", "dettes", "archives"] },
     { id: "produits", label: "Produits", icon: Box, tabs: ["stock", "tarifs"] },
     { id: "pilotage", label: "Équipe & pilotage", icon: Target, tabs: ["objectif", "kanban", "dispos"] },
     { id: "marketing", label: "Marketing", icon: Flame, tabs: ["cible", "copywriting", "prospection", "terrain"] },
@@ -2061,6 +2067,7 @@ export default function App() {
     { id: "crm", label: "Clients & CRM", icon: Users },
     { id: "stock", label: "Produits & stock", icon: Box },
     { id: "factures", label: "Devis & factures", icon: FileText, also: ["devis"] },
+    { id: "calendrier", label: "Calendrier", icon: CalendarDays },
     { id: "tresorerie", label: "Finances", icon: BarChart3, also: ["dettes", "archives"] },
     { id: "kanban", label: "Équipe & tâches", icon: LayoutGrid, also: ["objectif", "dispos"] },
     { id: "cible", label: "Marketing", icon: Flame, also: ["copywriting", "prospection", "terrain"] },
@@ -2178,6 +2185,7 @@ export default function App() {
             {tab === "tresorerie" && <TabTresorerie prospects={prospects} setProspects={setProspects} expenses={expenses} setExpenses={setExpenses} totalCA={totalCA} totalCommission={totalCommission} totalDepenses={totalDepenses} beneficeNet={beneficeNet} team={team} codes={codes} commissionRate={commissionRate} />}
             {tab === "dettes" && <TabDettes dettes={dettes} setDettes={setDettes} prospects={prospects} />}
             {tab === "tarifs" && <TabTarifs pricing={pricing} setPricing={setPricing} />}
+            {tab === "calendrier" && <TabCalendrier prospects={prospects} expenses={expenses} archives={archives} factures={factures} team={team} />}
             {tab === "archives" && <TabArchives archives={archives} period={period} team={team} codes={codes} onDelete={deleteArchive} onUpdate={updateArchive} onCreate={(m) => restoreArchive(m, [])} />}
             {tab === "cible" && <TabCible content={content} setContent={setContent} />}
             {tab === "copywriting" && <TabCopywriting content={content} setContent={setContent} />}
@@ -6342,6 +6350,7 @@ function TabAccueil({ go, totalCA, totalReste, goal, pct, beneficeNet, lowStock,
     { id: "crm", label: "Client", icon: UserPlus },
     { id: "factures", label: "Facture", icon: Receipt },
     { id: "tresorerie", label: "Dépense", icon: Wallet },
+    { id: "calendrier", label: "Calendrier", icon: CalendarDays },
   ];
   return (
     <div>
@@ -6371,7 +6380,7 @@ function TabAccueil({ go, totalCA, totalReste, goal, pct, beneficeNet, lowStock,
         </div>
       </Hero>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 8, marginTop: 18 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(5, minmax(0, 1fr))", gap: 6, marginTop: 18 }}>
         {QA.map(q => {
           const Icon = q.icon;
           return (
@@ -6417,6 +6426,161 @@ function TabAccueil({ go, totalCA, totalReste, goal, pct, beneficeNet, lowStock,
 }
 
 /* ---------------------------------- MENU ---------------------------------- */
+/* ---------------------------------- CALENDRIER ---------------------------------- */
+// Tout ce qui s'est passe un jour donne : encaissements, ventes en caisse, nouveaux
+// clients, depenses, factures. Lit le mois en cours ET toutes les archives.
+const ymd = (d) => String(d || "").slice(0, 10);
+const todayYmd = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
+const MOIS_FR = ["janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août", "septembre", "octobre", "novembre", "décembre"];
+
+function buildDayEvents({ prospects, expenses, archives, factures, team }) {
+  const nameOf = (id) => (team.find(m => m.id === id) || {}).name || "";
+  const byDay = new Map();
+  const seen = new Set();
+  function add(ev) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(ev.date) || seen.has(ev.key)) return;
+    seen.add(ev.key);
+    if (!byDay.has(ev.date)) byDay.set(ev.date, []);
+    byDay.get(ev.date).push(ev);
+  }
+  // Le mois en cours en premier : en cas de doublon, c'est la version a jour qui compte.
+  const clientSources = [...(prospects || []), ...(archives || []).flatMap(a => a.clients || [])];
+  clientSources.forEach(c => {
+    const nom = clientFullName(c) || "Client";
+    paymentsOf(c).forEach(pay => {
+      const m = Number(pay.montant) || 0;
+      if (m <= 0) return;
+      add({ key: `pay|${c.id}|${pay.id}|${ymd(pay.date)}|${m}`, type: "pay", date: ymd(pay.date), label: nom, sub: [pay.mode, pay.note && pay.note !== "Paiement" ? pay.note : "", pay.recNumero].filter(Boolean).join(" · "), montant: m, who: nameOf(c.owner) });
+    });
+    (c.achats || []).forEach(a => {
+      const items = (a.items || []).map(it => `${it.label}${Number(it.qte) > 1 ? ` ×${it.qte}` : ""}`).join(", ");
+      add({ key: `vente|${c.id}|${a.id}`, type: "vente", date: ymd(a.date), label: nom, sub: items, montant: Number(a.total) || 0, who: a.vendeur || "" });
+    });
+    if (c.dateInscription && !c.reportDe) {
+      add({ key: `client|${c.id}`, type: "client", date: ymd(c.dateInscription), label: nom, sub: [c.pack, c.statut].filter(Boolean).join(" · "), montant: 0, who: nameOf(c.owner) });
+    }
+  });
+  [...(expenses || []), ...(archives || []).flatMap(a => a.expenses || [])].forEach(e => {
+    add({ key: `dep|${e.id}|${ymd(e.date)}|${e.montant}`, type: "dep", date: ymd(e.date), label: e.label || "Dépense", sub: e.categorie || "", montant: Number(e.montant) || 0, who: nameOf(e.addedBy) });
+  });
+  (factures || []).forEach(f => {
+    add({ key: `fac|${f.id}`, type: "fac", date: ymd(f.date), label: f.clientNom || "Facture", sub: f.numero || "", montant: docTotals(f).total, who: "" });
+  });
+  return byDay;
+}
+function dayTotals(list) {
+  const t = { enc: 0, dep: 0, ventes: 0, clients: 0 };
+  (list || []).forEach(e => {
+    if (e.type === "pay") t.enc += e.montant;
+    if (e.type === "dep") t.dep += e.montant;
+    if (e.type === "vente") t.ventes += 1;
+    if (e.type === "client") t.clients += 1;
+  });
+  return t;
+}
+
+function TabCalendrier({ prospects, expenses, archives, factures, team }) {
+  const [day, setDay] = useState(todayYmd());
+  const [view, setView] = useState(todayYmd().slice(0, 7)); // mois affiche "YYYY-MM"
+  const byDay = useMemo(() => buildDayEvents({ prospects, expenses, archives, factures, team }), [prospects, expenses, archives, factures, team]);
+
+  const [vy, vm] = view.split("-").map(Number);
+  const first = new Date(vy, vm - 1, 1);
+  const offset = (first.getDay() + 6) % 7; // lundi = 0
+  const nbDays = new Date(vy, vm, 0).getDate();
+  const cells = [...Array(offset).fill(null), ...Array.from({ length: nbDays }, (_, i) => `${view}-${String(i + 1).padStart(2, "0")}`)];
+  while (cells.length % 7) cells.push(null);
+
+  const monthList = [...byDay.entries()].filter(([d]) => d.startsWith(view)).flatMap(([, l]) => l);
+  const mt = dayTotals(monthList);
+  const list = (byDay.get(day) || []).slice().sort((a, b) => ["pay", "vente", "client", "fac", "dep"].indexOf(a.type) - ["pay", "vente", "client", "fac", "dep"].indexOf(b.type));
+  const t = dayTotals(list);
+  const today = todayYmd();
+
+  function shiftMonth(n) {
+    const d = new Date(vy, vm - 1 + n, 1);
+    setView(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`);
+  }
+  function pick(d) { if (!d) return; setDay(d); setView(d.slice(0, 7)); }
+
+  const TYPES = {
+    pay: { label: "Encaissement", kind: "ok", icon: Banknote, color: C.greenLight, sign: "+" },
+    vente: { label: "Vente en caisse", kind: "or", icon: ShoppingBag, color: C.goldLight, sign: "" },
+    client: { label: "Nouveau client", kind: "bl", icon: UserPlus, color: C.text, sign: "" },
+    fac: { label: "Facture", kind: "bl", icon: Receipt, color: C.text, sign: "" },
+    dep: { label: "Dépense", kind: "ko", icon: Wallet, color: C.rustLight, sign: "−" },
+  };
+  const dayLabel = new Date(day + "T12:00:00").toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      <Card>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          <label htmlFor="kbs-cal-date" style={{ fontSize: 12.5, color: C.muted, fontWeight: 600 }}>Choisir une date</label>
+          <input id="kbs-cal-date" type="date" value={day} onChange={e => pick(e.target.value)} style={{ ...inputStyle, width: "auto", flex: "1 1 160px", colorScheme: "dark" }} />
+          {day !== today && <button onClick={() => pick(today)} style={{ ...iconBtn, padding: "9px 12px" }}>Aujourd'hui</button>}
+        </div>
+
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 14 }}>
+          <button onClick={() => shiftMonth(-1)} aria-label="Mois précédent" style={{ ...iconBtn, padding: 8 }}><ChevronLeft size={18} /></button>
+          <div style={{ fontFamily: "Archivo, sans-serif", fontWeight: 800, fontSize: 17, textTransform: "capitalize" }}>{MOIS_FR[vm - 1]} {vy}</div>
+          <button onClick={() => shiftMonth(1)} aria-label="Mois suivant" style={{ ...iconBtn, padding: 8 }}><ChevronRight size={18} /></button>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(7, minmax(0, 1fr))", gap: 4, marginTop: 10 }}>
+          {["L", "M", "M", "J", "V", "S", "D"].map((d, i) => <div key={i} style={{ textAlign: "center", fontSize: 11, color: C.muted, fontWeight: 700, paddingBottom: 2 }}>{d}</div>)}
+          {cells.map((d, i) => {
+            if (!d) return <div key={i} />;
+            const dt = dayTotals(byDay.get(d));
+            const sel = d === day, isToday = d === today;
+            const has = dt.enc || dt.dep || dt.ventes || dt.clients;
+            return (
+              <button key={d} onClick={() => pick(d)} aria-label={d} aria-pressed={sel}
+                style={{ minHeight: 50, borderRadius: 11, border: isToday && !sel ? `1px solid ${C.gold}` : "1px solid transparent", background: sel ? C.gold : has ? C.cardAlt : "transparent", color: sel ? "#011B45" : C.text, cursor: "pointer", padding: "5px 2px", display: "flex", flexDirection: "column", alignItems: "center", gap: 3, minWidth: 0 }}>
+                <span style={{ fontWeight: 700, fontSize: 13 }}>{Number(d.slice(8))}</span>
+                {dt.enc > 0 && <span style={{ fontSize: 9.5, fontWeight: 700, color: sel ? "#011B45" : C.greenLight, maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{dt.enc >= 1000 ? `${Math.round(dt.enc / 1000)}k` : dt.enc}</span>}
+                <span style={{ display: "flex", gap: 3 }}>
+                  {(dt.ventes > 0 || dt.clients > 0) && <i style={{ width: 5, height: 5, borderRadius: 3, background: sel ? "#011B45" : C.goldLight }} />}
+                  {dt.dep > 0 && <i style={{ width: 5, height: 5, borderRadius: 3, background: sel ? "#011B45" : C.rustLight }} />}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+        <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginTop: 12, fontSize: 12, color: C.muted }}>
+          <span>Mois : <b style={{ color: C.greenLight }}>{fcfa(mt.enc)}</b> encaissé</span>
+          <span><b style={{ color: C.rustLight }}>{fcfa(mt.dep)}</b> de dépenses</span>
+          <span>{mt.ventes} vente{mt.ventes > 1 ? "s" : ""} en caisse</span>
+        </div>
+      </Card>
+
+      <div>
+        <div style={{ fontFamily: "Archivo, sans-serif", fontWeight: 800, fontSize: 18, textTransform: "capitalize" }}>{dayLabel}</div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 8, marginTop: 10 }}>
+          <ArchStat label="Encaissé" value={fcfa(t.enc)} color={C.greenLight} />
+          <ArchStat label="Dépenses" value={fcfa(t.dep)} color={C.rustLight} />
+          <ArchStat label="Solde du jour" value={fcfa(t.enc - t.dep)} color={t.enc - t.dep >= 0 ? C.goldLight : C.rustLight} />
+        </div>
+      </div>
+
+      {list.length === 0 ? (
+        <Card><div style={{ color: C.muted, fontSize: 13 }}>Rien d'enregistré ce jour-là. Les jours avec de l'activité sont surlignés dans le calendrier.</div></Card>
+      ) : list.map(ev => {
+        const T = TYPES[ev.type]; const Icon = T.icon;
+        return (
+          <div key={ev.key} style={{ display: "flex", alignItems: "center", gap: 12, background: C.card, borderRadius: 14, padding: "11px 12px" }}>
+            <IconTile kind={T.kind} size={38}><Icon size={17} /></IconTile>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontWeight: 700, fontSize: 13.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{ev.label}</div>
+              <div style={{ fontSize: 11.5, color: C.muted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{T.label}{ev.sub ? ` · ${ev.sub}` : ""}{ev.who ? ` · ${ev.who}` : ""}</div>
+            </div>
+            {ev.montant > 0 && <b style={{ color: T.color, fontFamily: "Archivo, sans-serif", whiteSpace: "nowrap" }}>{T.sign}{numFr(ev.montant)}</b>}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function TabMenu({ go, categories, meta, unread, me, onLogout, upd }) {
   const kinds = { ventes: "or", produits: "bl", pilotage: "ok", marketing: "or", ressources: "ok", admin: "bl" };
   return (
