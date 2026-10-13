@@ -17,6 +17,15 @@ Les entrées les plus récentes sont en haut.
 - **À faire dans Supabase** (Authentication) : activer le provider **Google**
   (Client ID/Secret Google Cloud), mettre l'URL du site dans *Site URL* et
   *Redirect URLs*, vérifier l'envoi des e-mails (SMTP).
+- **Où on en est (fin de soirée 13/10)** : Google Cloud, projet `kbs-gestion`
+  (écran de consentement déjà configuré), client OAuth « KBS Gestion Web. »
+  créé le 13/10 (origine `https://app.kbsdigitalagency.com`, redirection
+  `https://vspepqwipgjkmnemwlfa.supabase.co/auth/v1/callback`). Un ancien
+  client « Kbs Gestion web » (20/09) existe aussi : ne pas l'utiliser.
+  **Reste à faire** : publier l'app (page Audience) ; Supabase → Google
+  (Client ID + secret du nouveau client) ; URL Configuration (Site URL +
+  `https://app.kbsdigitalagency.com/**`) ; renseigner les Gmail des membres
+  dans Administration → Équipe ; fusionner la branche sur `main` ; tester.
 - Limite connue : les données restent dans `kbs_storage` avec la clé publique ;
   le contrôle d'accès est côté application seulement (RLS à faire avec les vraies tables).
 
