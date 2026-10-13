@@ -44,14 +44,22 @@ const FONT_IMPORT = `@import url('https://fonts.googleapis.com/css2?family=Archi
   --c-navy:#011B45;--c-surf:#0A1F45;--c-card2:#173571;
 }
 html,body{ background:var(--c-bg); color-scheme: dark; }
-body{ margin:0; -webkit-font-smoothing:antialiased; }
+html{ -webkit-text-size-adjust:100%; text-size-adjust:100%; }
+body{ margin:0; -webkit-font-smoothing:antialiased; -webkit-tap-highlight-color:transparent; overscroll-behavior-y:none; }
+/* iPhone : pas de zoom automatique quand on touche un champ (il faut 16 px minimum) */
+@supports (-webkit-touch-callout: none){ input,select,textarea{ font-size:16px !important; } }
+/* iPhone : encoche en haut et barre d'accueil en bas */
+.kbs-header{ padding-top:env(safe-area-inset-top); }
+.kbs-side{ padding-top:calc(22px + env(safe-area-inset-top)) !important; }
+.kbs-bottom{ height:calc(78px + env(safe-area-inset-bottom)) !important; }
+.kbs-safe-top{ padding-top:env(safe-area-inset-top); }
 input,select,textarea,button{ font-family:Figtree,sans-serif; }
 input::placeholder,textarea::placeholder{ color:#7F8BA8; }
 select option{ background:#0A1F45; color:#F4F6FB; }
 /* Mise en page : barre du bas sur telephone, menu lateral sur ordinateur */
 .kbs-side{ display:none; }
 .kbs-bottom{ display:grid; }
-.kbs-main{ padding-bottom:110px; }
+.kbs-main{ padding-bottom:calc(110px + env(safe-area-inset-bottom)); }
 @media (min-width: 900px){
   .kbs-side{ display:flex; }
   .kbs-bottom{ display:none; }
@@ -62,6 +70,22 @@ select option{ background:#0A1F45; color:#F4F6FB; }
 .kbs-grid4{ display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
 @media (min-width: 700px){ .kbs-grid4{ grid-template-columns:repeat(4,minmax(0,1fr)); } .kbs-prod{ grid-template-columns:repeat(3,minmax(0,1fr)) !important; } }
 @media (min-width: 1100px){ .kbs-prod{ grid-template-columns:repeat(4,minmax(0,1fr)) !important; } }
+/* Tablette et ordinateur : plus d'air, colonnes cote a cote */
+@media (min-width: 700px){ .kbs-content{ padding:22px 24px !important; } }
+.kbs-home,.kbs-cal{ display:flex; flex-direction:column; }
+@media (min-width: 1000px){
+  .kbs-home{ display:grid; grid-template-columns:minmax(0,1.35fr) minmax(0,1fr); gap:22px; align-items:start; }
+  .kbs-cal{ display:grid; grid-template-columns:minmax(0,1.1fr) minmax(0,1fr); gap:20px; align-items:start; }
+}
+/* Connexion : deux colonnes sur ordinateur */
+.kbs-login{ display:flex; justify-content:center; }
+.kbs-login-brand{ display:none; }
+@media (min-width: 900px){
+  .kbs-login{ display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); align-items:center; gap:56px; max-width:1100px; margin:0 auto; padding:40px 48px !important; }
+  .kbs-login-brand{ display:flex; flex-direction:column; gap:22px; }
+  .kbs-login-form{ background:var(--c-card); border-radius:26px; padding:34px 32px; box-shadow:0 30px 60px rgba(0,0,0,.35); justify-self:center; }
+  .kbs-login-form .kbs-login-head{ display:none !important; }
+}
 .kbs-tap{ transition: transform .12s ease, background .15s ease; }
 .kbs-tap:active{ transform: scale(.97); }
 /* Impression : seul le ticket de caisse sort (imprimante thermique 80 mm) */
@@ -954,7 +978,7 @@ function useAppUpdate() {
 function UpdateBanner({ onApply }) {
   const [busy, setBusy] = useState(false);
   return (
-    <div role="status" style={{ position: "sticky", top: 0, zIndex: 60, background: "linear-gradient(160deg,#FDB402,#F39200 60%,#FD5C01)", color: "#011B45", display: "flex", alignItems: "center", gap: 10, padding: "10px 16px", fontWeight: 700, fontSize: 13.5, flexWrap: "wrap" }}>
+    <div role="status" className="kbs-safe-top" style={{ position: "sticky", top: 0, zIndex: 60, background: "linear-gradient(160deg,#FDB402,#F39200 60%,#FD5C01)", color: "#011B45", display: "flex", alignItems: "center", gap: 10, padding: "10px 16px", fontWeight: 700, fontSize: 13.5, flexWrap: "wrap" }}>
       <RefreshCw size={17} />
       <span style={{ flex: 1, minWidth: 180 }}>Une nouvelle version de KBS Gestion est disponible.</span>
       <button onClick={() => { setBusy(true); onApply(); }} disabled={busy} style={{ background: "#011B45", color: "#fff", border: "none", borderRadius: 11, padding: "9px 14px", fontWeight: 800, fontSize: 13, cursor: "pointer" }}>
@@ -2123,8 +2147,8 @@ function App() {
 
         <div className="kbs-main" style={{ flex: 1, minWidth: 0 }}>
           {/* EN-TETE */}
-          <header style={{ position: "sticky", top: 0, zIndex: 20, background: "rgba(6,20,48,.92)", backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", borderBottom: `1px solid ${C.border}` }}>
-            <div style={{ maxWidth: 1100, margin: "0 auto", padding: "12px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+          <header className="kbs-header" style={{ position: "sticky", top: 0, zIndex: 20, background: "rgba(6,20,48,.92)", backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", borderBottom: `1px solid ${C.border}` }}>
+            <div style={{ maxWidth: 1240, margin: "0 auto", padding: "12px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
                 {tab !== "accueil" ? (
                   <button onClick={() => go(tab === "menu" ? "accueil" : (BOTTOM.some(b => b.id === tab) ? "accueil" : "menu"))} aria-label="Retour" className="kbs-mobile-only" style={{ width: 40, height: 40, borderRadius: 13, background: C.card, border: "none", color: C.text, display: "grid", placeItems: "center", cursor: "pointer", flexShrink: 0 }}><ChevronLeft size={20} /></button>
@@ -2156,7 +2180,7 @@ function App() {
             </div>
           )}
 
-          <div className="kbs-content" style={{ padding: 16, maxWidth: ["accueil", "vendre", "stock", "menu"].includes(tab) ? 1100 : 760, margin: "0 auto", boxSizing: "border-box" }}>
+          <div className="kbs-content" style={{ padding: 16, maxWidth: ["accueil", "vendre", "stock", "menu", "calendrier", "crm"].includes(tab) ? 1240 : 1000, margin: "0 auto", boxSizing: "border-box" }}>
             {/* Sous-navigation : les autres ecrans de la meme famille */}
             {category && tab !== "vendre" && CATEGORIES.find(c => c.id === category).tabs.length > 1 && (
               <div className="kbs-navbar" style={{ display: "flex", gap: 6, overflowX: "auto", marginBottom: 14, paddingBottom: 2 }}>
@@ -2247,10 +2271,25 @@ function LoginScreen({ onUnlock, codes, team }) {
   const initials = (n) => { const w = (n || "?").trim().split(/\s+/); return (w.length > 1 ? w[0][0] + w[1][0] : w[0].slice(0, 2)).toUpperCase(); };
 
   return (
-    <div style={{ minHeight: "100vh", display: "flex", justifyContent: "center", padding: "48px 22px 30px", boxSizing: "border-box", position: "relative", overflow: "hidden" }}>
+    <div style={{ minHeight: "100vh", position: "relative", overflow: "hidden", display: "flex", alignItems: "center" }}>
       <div aria-hidden="true" style={{ position: "absolute", width: 460, height: 460, borderRadius: "50%", border: "1px solid rgba(243,146,0,.22)", right: -240, top: -210 }} />
-      <div style={{ width: "100%", maxWidth: 400, position: "relative" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+    <div className="kbs-login kbs-safe-top" style={{ width: "100%", padding: "48px 22px 30px", boxSizing: "border-box", position: "relative" }}>
+      <div className="kbs-login-brand">
+        <AppIcon size={96} style={{ borderRadius: 24, boxShadow: "0 18px 50px rgba(243,146,0,.25)" }} />
+        <div>
+          <AppWordmark size={52} />
+          <div style={{ color: C.muted, fontSize: 18, marginTop: 10, maxWidth: 460, lineHeight: 1.5 }}>Ventes, stock, clients, factures et équipe de KBS Digital Agency, au même endroit.</div>
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 12, marginTop: 6 }}>
+          {[[ShoppingBag, "Vendre produits, packs et services, avec reçu"], [Box, "Suivre le stock et savoir quoi racheter"], [CalendarDays, "Voir chaque journée : ventes et dépenses"], [Shield, "Sauvegarde automatique chaque jour"]].map(([Icon, t]) => (
+            <div key={t} style={{ display: "flex", alignItems: "center", gap: 12, fontSize: 15 }}>
+              <span style={{ width: 38, height: 38, borderRadius: 12, background: "rgba(243,146,0,.14)", color: C.goldLight, display: "grid", placeItems: "center", flexShrink: 0 }}><Icon size={18} /></span>{t}
+            </div>
+          ))}
+        </div>
+      </div>
+      <div className="kbs-login-form" style={{ width: "100%", maxWidth: 420, position: "relative", boxSizing: "border-box", margin: "0 auto" }}>
+        <div className="kbs-login-head" style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 38 }}>
           <AppIcon size={64} style={{ borderRadius: 15, boxShadow: "0 10px 30px rgba(243,146,0,.25)" }} />
           <div>
             <div><AppWordmark size={26} /></div>
@@ -2258,7 +2297,7 @@ function LoginScreen({ onUnlock, codes, team }) {
           </div>
         </div>
 
-        <div style={{ fontFamily: "Archivo, sans-serif", fontWeight: 800, fontSize: 22, marginTop: 38 }}>Qui se connecte ?</div>
+        <div style={{ fontFamily: "Archivo, sans-serif", fontWeight: 800, fontSize: 22 }}>Qui se connecte ?</div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 8, marginTop: 14 }}>
           {team.map(m => (
             <button key={m.id} onClick={() => { setWho(m.id); setError(false); }} style={{ background: who === m.id ? "rgba(243,146,0,.10)" : C.card, border: `1.5px solid ${who === m.id ? C.gold : "transparent"}`, borderRadius: 16, padding: "10px 4px", display: "flex", flexDirection: "column", alignItems: "center", gap: 6, color: C.text, fontWeight: 600, fontSize: 12, cursor: "pointer", minWidth: 0 }}>
@@ -2284,6 +2323,7 @@ function LoginScreen({ onUnlock, codes, team }) {
         </div>
         <div style={{ color: C.muted, textAlign: "center", fontSize: 11.5, marginTop: 28 }}>KBS Digital Agency · Bamako</div>
       </div>
+    </div>
     </div>
   );
 }
@@ -5731,7 +5771,20 @@ function AdminRecuperation({ onRestoreArchive }) {
       {result && (<>
         <Card>
           <Eyebrow>Clients retrouvés ({result.clients.length}) — CA {fcfa(total)}</Eyebrow>
-          {result.clients.length === 0 && <div style={{ fontSize: 12.5, color: C.muted }}>Aucun client avec montant retrouvé pour ce mois dans la base.</div>}
+          {result.clients.length === 0 && (
+            <div style={{ fontSize: 13, color: C.text, lineHeight: 1.55 }}>
+              <b>Rien n'a été retrouvé pour {new Date(month + "-15").toLocaleDateString("fr-FR", { month: "long", year: "numeric" })}.</b>
+              <div style={{ color: C.muted, marginTop: 6 }}>
+                L'outil a fouillé toute la base : les clients en cours, toutes les archives et toutes les sauvegardes. Aucune vente de ce mois n'y est enregistrée.
+                Ces données ont donc été effacées avant la mise en place des protections (sauvegarde chaque jour, archives en double). Ça ne peut plus se reproduire de la même façon.
+              </div>
+              <div style={{ marginTop: 8, fontWeight: 700 }}>Que faire maintenant :</div>
+              <div style={{ color: C.muted }}>
+                1. Ressaisir les ventes à partir des reçus WhatsApp, des PDF envoyés et de l'historique Orange Money / Wave : Ventes &amp; finances → Archives → « Créer le mois », puis « Ajouter une vente à ce mois ».<br />
+                2. Si ton projet Supabase a un forfait payant, regarder dans Supabase → Database → Backups s'il existe une copie de cette période.
+              </div>
+            </div>
+          )}
           <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 6 }}>
             {result.clients.map(c => (
               <div key={c.id} style={{ background: C.cardAlt, borderRadius: 8, padding: "6px 10px", fontSize: 12.5 }}>
@@ -5760,13 +5813,13 @@ function AdminRecuperation({ onRestoreArchive }) {
           </Card>
         )}
 
-        <Card>
-          <Eyebrow>Contenu de la base ({result.keys.length} lignes)</Eyebrow>
-          <div style={{ fontSize: 11.5, color: C.muted, marginBottom: 6 }}>Les lignes « backup:… » sont les sauvegardes automatiques quotidiennes (créées à partir de maintenant).</div>
+        <details style={{ background: C.card, borderRadius: 16, padding: "12px 14px" }}>
+          <summary style={{ cursor: "pointer", fontSize: 12.5, color: C.muted, fontWeight: 700 }}>Détails techniques ({result.keys.length} lignes dans la base, pour le développeur)</summary>
+          <div style={{ fontSize: 11.5, color: C.muted, margin: "8px 0 6px" }}>Chaque ligne est un module de l'application (clients, stock, factures…) avec la date de sa dernière modification. Les lignes « backup:… » sont les sauvegardes, « archive:… » les mois clôturés.</div>
           <div style={{ maxHeight: 220, overflowY: "auto", fontSize: 11.5, fontFamily: "monospace" }}>
             {result.keys.map(k => <div key={k.key}>{k.key} <span style={{ color: C.muted }}>· {k.updated ? new Date(k.updated).toLocaleString("fr-FR") : ""}</span></div>)}
           </div>
-        </Card>
+        </details>
       </>)}
     </div>
   );
@@ -6352,8 +6405,11 @@ function TabAccueil({ go, totalCA, totalReste, goal, pct, beneficeNet, lowStock,
     { id: "tresorerie", label: "Dépense", icon: Wallet },
     { id: "calendrier", label: "Calendrier", icon: CalendarDays },
   ];
+  const recent = prospects.flatMap(p => paymentsOf(p).map(x => ({ p, x })))
+    .sort((a, b) => String(b.x.date || "").localeCompare(String(a.x.date || "")) || (Number(b.x.id) || 0) - (Number(a.x.id) || 0)).slice(0, 6);
   return (
-    <div>
+    <div className="kbs-home">
+      <div>
       <Hero>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <span style={{ color: C.muted, fontSize: 12.5, fontWeight: 600 }}>Chiffre d'affaires du mois</span>
@@ -6392,6 +6448,8 @@ function TabAccueil({ go, totalCA, totalReste, goal, pct, beneficeNet, lowStock,
         })}
       </div>
 
+      </div>
+      <div>
       <SectionTitle>À traiter</SectionTitle>
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         {lowStock.length > 0 && (
@@ -6420,6 +6478,21 @@ function TabAccueil({ go, totalCA, totalReste, goal, pct, beneficeNet, lowStock,
           <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontWeight: 700 }}>{tasks} tâche{tasks > 1 ? "s" : ""} de l'équipe</div><div style={{ color: C.muted, fontSize: 12 }}>{toValidate > 0 ? `dont ${toValidate} à valider` : "rien à valider pour l'instant"}</div></div>
           <Pill kind="gr">Tâches</Pill>
         </ListRow>
+      </div>
+      {recent.length > 0 && (<>
+        <SectionTitle>Derniers encaissements</SectionTitle>
+        <div style={{ background: C.card, borderRadius: 18, padding: "4px 14px" }}>
+          {recent.map(({ p, x }, i) => (
+            <button key={`${p.id}-${x.id}-${i}`} onClick={() => go("calendrier")} style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", padding: "11px 0", background: "none", border: "none", borderTop: i ? `1px solid ${C.border}` : "none", color: C.text, cursor: "pointer", textAlign: "left", fontSize: 13 }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{clientFullName(p) || "Client"}</div>
+                <div style={{ color: C.muted, fontSize: 11.5 }}>{x.date ? frDate(x.date) : ""}{x.mode ? ` · ${x.mode}` : ""}</div>
+              </div>
+              <b style={{ color: C.greenLight, fontFamily: "Archivo, sans-serif" }}>+{numFr(x.montant)}</b>
+            </button>
+          ))}
+        </div>
+      </>)}
       </div>
     </div>
   );
@@ -6513,7 +6586,7 @@ function TabCalendrier({ prospects, expenses, archives, factures, team }) {
   const dayLabel = new Date(day + "T12:00:00").toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+    <div className="kbs-cal" style={{ gap: 14 }}>
       <Card>
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
           <label htmlFor="kbs-cal-date" style={{ fontSize: 12.5, color: C.muted, fontWeight: 600 }}>Choisir une date</label>
@@ -6553,6 +6626,7 @@ function TabCalendrier({ prospects, expenses, archives, factures, team }) {
         </div>
       </Card>
 
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
       <div>
         <div style={{ fontFamily: "Archivo, sans-serif", fontWeight: 800, fontSize: 18, textTransform: "capitalize" }}>{dayLabel}</div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 8, marginTop: 10 }}>
@@ -6577,6 +6651,7 @@ function TabCalendrier({ prospects, expenses, archives, factures, team }) {
           </div>
         );
       })}
+      </div>
     </div>
   );
 }
