@@ -903,6 +903,215 @@ async function saveShared(key, value) {
   }
 }
 
+/* ------------------------------ MISE A JOUR DE L'APPLICATION ------------------------------ */
+// Chaque publication produit un nouveau fichier /assets/index-XXXX.js. On relit index.html
+// sur le serveur (sans cache) : si le fichier annonce n'est plus celui charge, une nouvelle
+// version est en ligne et on propose de l'installer tout de suite.
+const BUILD_TIME = typeof __BUILD_TIME__ !== "undefined" ? __BUILD_TIME__ : "";
+function loadedBundle() {
+  const s = [...document.scripts].find(x => /\/assets\/index-[^/]+\.js/.test(x.src || ""));
+  return s ? new URL(s.src).pathname : null;
+}
+async function latestBundle() {
+  const r = await fetch(`/?maj=${Date.now()}`, { cache: "no-store" });
+  if (!r.ok) throw new Error("HTTP " + r.status);
+  const m = (await r.text()).match(/\/assets\/index-[^"']+\.js/);
+  return m ? m[0] : null;
+}
+function useAppUpdate() {
+  const [ready, setReady] = useState(false);
+  async function check() {
+    const mine = loadedBundle();
+    if (!mine) return "dev"; // mode developpement : rien a comparer
+    try {
+      const latest = await latestBundle();
+      const isNew = !!latest && latest !== mine;
+      setReady(isNew);
+      return isNew ? "new" : "same";
+    } catch { return "error"; }
+  }
+  async function apply() {
+    try {
+      if ("serviceWorker" in navigator) {
+        const regs = await navigator.serviceWorker.getRegistrations();
+        await Promise.all(regs.map(r => r.update().catch(() => {})));
+      }
+      if (window.caches) { const keys = await caches.keys(); await Promise.all(keys.map(k => caches.delete(k))); }
+    } catch (e) {}
+    window.location.reload();
+  }
+  useEffect(() => {
+    check();
+    const onVis = () => { if (document.visibilityState === "visible") check(); };
+    document.addEventListener("visibilitychange", onVis);
+    const t = setInterval(check, 5 * 60 * 1000);
+    return () => { document.removeEventListener("visibilitychange", onVis); clearInterval(t); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  return { ready, check, apply };
+}
+
+function UpdateBanner({ onApply }) {
+  const [busy, setBusy] = useState(false);
+  return (
+    <div role="status" style={{ position: "sticky", top: 0, zIndex: 60, background: "linear-gradient(160deg,#FDB402,#F39200 60%,#FD5C01)", color: "#011B45", display: "flex", alignItems: "center", gap: 10, padding: "10px 16px", fontWeight: 700, fontSize: 13.5, flexWrap: "wrap" }}>
+      <RefreshCw size={17} />
+      <span style={{ flex: 1, minWidth: 180 }}>Une nouvelle version de KBS Gestion est disponible.</span>
+      <button onClick={() => { setBusy(true); onApply(); }} disabled={busy} style={{ background: "#011B45", color: "#fff", border: "none", borderRadius: 11, padding: "9px 14px", fontWeight: 800, fontSize: 13, cursor: "pointer" }}>
+        {busy ? "Mise à jour…" : "Mettre à jour maintenant"}
+      </button>
+    </div>
+  );
+}
+
+// Carte « Mise à jour » (Menu) : bouton direct pour verifier et installer la derniere version.
+function UpdateCard({ upd }) {
+  const [state, setState] = useState("");
+  async function run() {
+    if (upd.ready) { setState("apply"); upd.apply(); return; }
+    setState("checking");
+    const r = await upd.check();
+    if (r === "new") { setState("apply"); upd.apply(); }
+    else setState(r);
+  }
+  const built = BUILD_TIME ? new Date(BUILD_TIME).toLocaleString("fr-FR", { day: "numeric", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "";
+  return (
+    <div style={{ background: C.card, borderRadius: 16, padding: 14, marginTop: 18, display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+      <IconTile kind={upd.ready ? "or" : "bl"}><RefreshCw size={19} /></IconTile>
+      <div style={{ flex: 1, minWidth: 160 }}>
+        <div style={{ fontWeight: 700 }}>Mise à jour de l'application</div>
+        <div style={{ color: C.muted, fontSize: 12 }}>
+          {upd.ready ? "Nouvelle version disponible" : state === "same" ? "Tu as la dernière version ✓" : state === "error" ? "Pas de connexion : réessaie dans un instant" : built ? `Version du ${built}` : "Vérifie si une nouvelle version est en ligne"}
+        </div>
+      </div>
+      <button onClick={run} disabled={state === "checking" || state === "apply"} style={{ ...btnGold, width: "auto", padding: "10px 14px" }}>
+        <RefreshCw size={14} /> {state === "checking" ? "Vérification…" : state === "apply" ? "Mise à jour…" : upd.ready ? "Mettre à jour" : "Vérifier et mettre à jour"}
+      </button>
+    </div>
+  );
+}
+
+/* ------------------------------ SAUVEGARDES & HISTORIQUE ------------------------------ */
+// Cles restaurables d'une sauvegarde (le mois en cours "period" n'est jamais restaure :
+// il declencherait une nouvelle bascule de mois).
+const BACKUP_KEYS = ["team", "goal", "prospects", "kanban", "checks", "links", "caisse", "expenses", "dettes", "prospection", "dispos", "codes", "agency", "devis", "factures", "content", "products", "stockMoves", "guides", "formationLiens", "pricing", "archives", "commissionRate"];
+function backupKind(key) {
+  if (/^backup:\d{4}-\d{2}-\d{2}$/.test(key)) return { label: "Automatique du jour", kind: "ok" };
+  if (key.startsWith("backup:avant-bascule:")) return { label: "Avant changement de mois", kind: "bl" };
+  if (key.startsWith("backup:avant-cloture:")) return { label: "Avant clôture du mois", kind: "bl" };
+  if (key.startsWith("backup:avant-restauration:")) return { label: "Avant restauration", kind: "or" };
+  if (key.startsWith("backup:manuelle:")) return { label: "Manuelle", kind: "or" };
+  return { label: "Sauvegarde", kind: "gr" };
+}
+
+function AdminSauvegardes({ onBackupNow, onRestoreBackup }) {
+  const [rows, setRows] = useState(null);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState("");
+  const [confirmKey, setConfirmKey] = useState("");
+  const [msg, setMsg] = useState("");
+  const [shown, setShown] = useState(15);
+
+  async function refresh() {
+    setError("");
+    const r = await loadByPrefix("backup:");
+    if (r === null) { setError("Impossible de lire les sauvegardes. Vérifie ta connexion puis réessaie."); return; }
+    const when = (x) => (x.value && x.value.savedAt) || x.updated_at || "";
+    setRows(r.sort((a, b) => String(when(b)).localeCompare(String(when(a)))));
+  }
+  useEffect(() => { refresh(); }, []);
+
+  async function backupNow() {
+    setBusy("save"); setMsg("");
+    const err = await onBackupNow("manuelle");
+    setBusy("");
+    if (err) setError("Sauvegarde impossible : " + err);
+    else { setMsg("Sauvegarde faite ✓"); refresh(); }
+  }
+  async function restore(row) {
+    setBusy(row.key); setError("");
+    const err = await onRestoreBackup(row.value || {});
+    setBusy("");
+    if (err) setError("Restauration impossible : " + err + ". Rien n'a été remplacé.");
+  }
+  function download(row) {
+    try {
+      const blob = new Blob([JSON.stringify(row.value, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = `kbs-gestion-${row.key.replace(/^backup:/, "").replace(/[:]/g, "_")}.json`;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 2000);
+    } catch (e) { setError("Téléchargement impossible sur cet appareil."); }
+  }
+
+  const last = rows && rows[0];
+  const lastWhen = last ? new Date((last.value && last.value.savedAt) || last.updated_at) : null;
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      <H2>Sauvegardes &amp; historique</H2>
+      <Card style={{ borderColor: C.green }}>
+        <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+          <IconTile kind="ok"><History size={19} /></IconTile>
+          <div style={{ flex: 1, minWidth: 200 }}>
+            <div style={{ fontWeight: 700 }}>Sauvegarde automatique chaque jour</div>
+            <div style={{ fontSize: 12.5, color: C.muted }}>
+              Une copie complète (clients, ventes, stock, factures, finances, équipe…) est faite chaque jour, et aussi avant chaque clôture ou changement de mois. Elle n'est jamais écrasée.
+              {lastWhen && <> Dernière : <b style={{ color: C.text }}>{lastWhen.toLocaleString("fr-FR", { day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" })}</b>.</>}
+            </div>
+          </div>
+          <button onClick={backupNow} disabled={busy === "save"} style={{ ...btnGold, width: "auto", padding: "10px 14px" }}><Save size={14} /> {busy === "save" ? "Sauvegarde…" : "Sauvegarder maintenant"}</button>
+        </div>
+        {msg && <div style={{ color: C.greenLight, fontSize: 12.5, marginTop: 8 }}>{msg}</div>}
+      </Card>
+      {error && <div style={{ color: C.rustLight, fontSize: 12.5 }}>{error} <button onClick={refresh} style={{ ...iconBtn, marginLeft: 6 }}>Réessayer</button></div>}
+
+      <Eyebrow>Historique des sauvegardes {rows ? `(${rows.length})` : ""}</Eyebrow>
+      {!rows && !error && <div style={{ color: C.muted, fontSize: 12.5 }}>Chargement…</div>}
+      {rows && rows.length === 0 && <div style={{ color: C.muted, fontSize: 12.5 }}>Aucune sauvegarde pour l'instant. Appuie sur « Sauvegarder maintenant ».</div>}
+      {rows && rows.slice(0, shown).map(row => {
+        const v = row.value || {};
+        const k = backupKind(row.key);
+        const when = new Date(v.savedAt || row.updated_at);
+        const clients = (v.prospects || []).length;
+        const ca = (v.prospects || []).reduce((s, p) => s + (Number(p.montant) || 0), 0);
+        return (
+          <Card key={row.key} style={{ padding: 12 }}>
+            <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+              <div style={{ flex: 1, minWidth: 180 }}>
+                <div style={{ fontWeight: 700 }}>{when.toLocaleString("fr-FR", { weekday: "short", day: "numeric", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" })}</div>
+                <div style={{ fontSize: 12, color: C.muted, display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", marginTop: 3 }}>
+                  <Pill kind={k.kind}>{k.label}</Pill>
+                  <span>{clients} client{clients > 1 ? "s" : ""} · {fcfa(ca)}</span>
+                  {v.products && <span>· {v.products.length} produit{v.products.length > 1 ? "s" : ""}</span>}
+                  {v.factures && <span>· {v.factures.length} facture{v.factures.length > 1 ? "s" : ""}</span>}
+                  {v.by && <span>· par {v.by}</span>}
+                </div>
+              </div>
+              <div style={{ display: "flex", gap: 6 }}>
+                <button onClick={() => download(row)} style={{ ...iconBtn, display: "flex", alignItems: "center", gap: 5, padding: "8px 11px" }}><ArrowDownToLine size={14} /> Télécharger</button>
+                <button onClick={() => setConfirmKey(confirmKey === row.key ? "" : row.key)} style={{ ...iconBtn, display: "flex", alignItems: "center", gap: 5, padding: "8px 11px", color: C.goldLight, borderColor: C.gold }}><RotateCcw size={14} /> Restaurer</button>
+              </div>
+            </div>
+            {confirmKey === row.key && (
+              <div style={{ marginTop: 10, background: C.cardAlt, borderRadius: 12, padding: 10 }}>
+                <div style={{ fontSize: 12.5, color: C.goldLight, fontWeight: 700 }}>Remettre toutes les données comme le {when.toLocaleDateString("fr-FR", { day: "numeric", month: "long" })} ?</div>
+                <div style={{ fontSize: 12, color: C.muted, marginTop: 3 }}>Les données actuelles sont d'abord sauvegardées (« Avant restauration »), tu pourras donc revenir en arrière. L'application se recharge ensuite.</div>
+                <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
+                  <button onClick={() => restore(row)} disabled={!!busy} style={{ ...btnGold, width: "auto", padding: "8px 14px" }}>{busy === row.key ? "Restauration…" : "Oui, restaurer"}</button>
+                  <button onClick={() => setConfirmKey("")} style={iconBtn}>Annuler</button>
+                </div>
+              </div>
+            )}
+          </Card>
+        );
+      })}
+      {rows && rows.length > shown && <button onClick={() => setShown(shown + 30)} style={iconBtn}>Voir plus ({rows.length - shown})</button>}
+    </div>
+  );
+}
+
 /* ---------------------------------- DIAGNOSTICS IA (stockage kbs_storage) ---------------------------------- */
 // Chaque diagnostic vit sous sa propre cle "diagnostic:{clientId}" pour isoler
 // les ecritures (l'app ET la fonction Edge ecrivent la meme ligne, mais jamais
@@ -1376,6 +1585,9 @@ export default function App() {
     try { return JSON.parse(localStorage.getItem("kbs:unread") || "{}"); } catch (e) { return {}; }
   });
   const tabRef = useRef(tab);
+  const snapshotRef = useRef(null);
+  const lastDailyBackupRef = useRef("");
+  const upd = useAppUpdate();
   useEffect(() => { tabRef.current = tab; }, [tab]);
 
   // Erreur de chargement : on n'autorise AUCUNE ecriture tant que tout n'est pas
@@ -1467,7 +1679,8 @@ export default function App() {
       const today = new Date().toISOString().slice(0, 10);
       const backupKey = `backup:${today}`;
       const existing = await loadShared(backupKey, null);
-      if (!existing) await saveShared(backupKey, { savedAt: new Date().toISOString(), ...d });
+      if (!existing) await saveShared(backupKey, { savedAt: new Date().toISOString(), kind: "jour", commissionRate: rate, ...d });
+      lastDailyBackupRef.current = today;
     })();
   }, [loadAttempt]);
 
@@ -1695,11 +1908,54 @@ export default function App() {
     setPeriod(currentMonth());
   }
 
+  // --- Sauvegardes ---
+  // Copie a jour de toutes les donnees (lue par les sauvegardes, sans dependre des closures).
+  snapshotRef.current = { team, goal, prospects, kanban, checks, links, caisse, expenses, dettes, prospection, dispos, codes, agency, devis, factures, content, products, stockMoves, guides, formationLiens, pricing, archives, period, commissionRate };
+  async function backupNow(kind = "manuelle") {
+    if (!loaded) return "Données pas encore chargées";
+    const now = new Date();
+    const day = now.toISOString().slice(0, 10);
+    const key = kind === "jour" ? `backup:${day}` : `backup:${kind}:${day}:${now.getTime()}`;
+    const by = (team.find(m => m.id === currentUser) || {}).name || "";
+    return await saveShared(key, { savedAt: now.toISOString(), kind, by, ...snapshotRef.current });
+  }
+  // Restaure une sauvegarde : copie de securite des donnees actuelles d'abord, puis
+  // reecriture de chaque module et rechargement. Le mois en cours n'est pas touche.
+  async function restoreBackup(data) {
+    const first = await backupNow("avant-restauration");
+    if (first) return first;
+    for (const k of BACKUP_KEYS) {
+      if (data[k] === undefined) continue;
+      const err = await saveShared(`kbs:${k}`, data[k]);
+      if (err) return err;
+    }
+    window.location.reload();
+    return null;
+  }
+  // Sauvegarde du jour aussi quand l'appli reste ouverte d'un jour a l'autre.
+  useEffect(() => {
+    if (!loaded) return;
+    async function daily() {
+      const today = new Date().toISOString().slice(0, 10);
+      if (lastDailyBackupRef.current === today) return;
+      const fails = [];
+      const existing = await loadShared(`backup:${today}`, null, fails);
+      if (fails.length) return; // lecture impossible : on reessaiera plus tard
+      if (existing || !(await backupNow("jour"))) lastDailyBackupRef.current = today;
+    }
+    const onVis = () => { if (document.visibilityState === "visible") daily(); };
+    document.addEventListener("visibilitychange", onVis);
+    const t = setInterval(daily, 15 * 60 * 1000);
+    return () => { document.removeEventListener("visibilitychange", onVis); clearInterval(t); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loaded]);
+
   // Cloture manuelle d'un mois (CEO) : archive les chiffres actuels sous le mois choisi
   // (ex. "2026-08" pour Aout) puis remet a zero les compteurs du mois. Ne touche ni a
   // l'equipe, ni aux tarifs, ni au Kanban : seulement CA/clients, tresorerie, dettes.
   function closeMonthManually(monthLabel) {
     const label = monthLabel || period || currentMonth();
+    backupNow("avant-cloture"); // copie complete juste avant de remettre les compteurs a zero
     archiveMonth(label);
     startNewMonth(label);
     setPeriod(currentMonth());
@@ -1733,7 +1989,8 @@ export default function App() {
     adminFormation: { label: "Formation", icon: BookOpen },
     adminCaisse: { label: "Caisse Perso", icon: Wallet },
     adminRecup: { label: "Récupération", icon: History },
-    adminReset: { label: "Réinitialisation", icon: AlertTriangle },
+    adminSauvegardes: { label: "Sauvegardes & historique", icon: Save },
+    adminReset: { label: "Clôture & remise à zéro", icon: Archive },
     formation: { label: "Formation", icon: BookOpen },
     archives: { label: "Archives", icon: Archive },
   };
@@ -1745,7 +2002,7 @@ export default function App() {
     { id: "pilotage", label: "Équipe & pilotage", icon: Target, tabs: ["objectif", "kanban", "dispos"] },
     { id: "marketing", label: "Marketing", icon: Flame, tabs: ["cible", "copywriting", "prospection", "terrain"] },
     { id: "ressources", label: "Ressources", icon: Sparkles, tabs: ["outils", "academie", "plan", "liens", "formation"] },
-    { id: "admin", label: "Administration", icon: Shield, tabs: ["adminEquipe", "adminAgence", "adminCodes", "adminTarifs", "adminFormation", "adminDiagnostics", "adminCaisse", "adminRecup", "adminReset"] },
+    { id: "admin", label: "Administration", icon: Shield, tabs: ["adminEquipe", "adminAgence", "adminCodes", "adminTarifs", "adminFormation", "adminDiagnostics", "adminCaisse", "adminSauvegardes", "adminRecup", "adminReset"] },
   ];
   const catOf = (t) => (CATEGORIES.find(c => c.tabs.includes(t)) || {}).id || "";
   const category = catOf(tab);
@@ -1814,6 +2071,7 @@ export default function App() {
   return (
     <div style={{ minHeight: "100vh", background: C.bg, color: C.text, fontFamily: "Figtree, sans-serif", fontSize: 14 }}>
       <style>{FONT_IMPORT}</style>
+      {upd.ready && <UpdateBanner onApply={upd.apply} />}
 
       {!loaded ? (
         <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", gap: 14, alignItems: "center", justifyContent: "center", color: C.muted, fontSize: 13, padding: 24, textAlign: "center" }}>
@@ -1851,6 +2109,7 @@ export default function App() {
           })}
           <div style={{ marginTop: "auto", paddingTop: 12, borderTop: `1px solid ${C.border}`, display: "flex", flexDirection: "column", gap: 3 }}>
             <button onClick={() => go("adminAgence")} style={{ display: "flex", gap: 11, alignItems: "center", padding: "11px 12px", borderRadius: 12, border: "none", cursor: "pointer", fontWeight: 600, fontSize: 14, background: category === "admin" ? "rgba(243,146,0,.14)" : "transparent", color: category === "admin" ? C.goldLight : C.muted }}><Settings size={19} /> Réglages</button>
+            <button onClick={() => (upd.ready ? upd.apply() : go("menu"))} style={{ display: "flex", gap: 11, alignItems: "center", padding: "11px 12px", borderRadius: 12, border: "none", cursor: "pointer", fontWeight: 600, fontSize: 14, background: upd.ready ? "rgba(243,146,0,.14)" : "transparent", color: upd.ready ? C.goldLight : C.muted }}><RefreshCw size={19} /> {upd.ready ? "Mettre à jour l'app" : "Mise à jour"}</button>
             <button onClick={() => setUnlocked(false)} style={{ display: "flex", gap: 11, alignItems: "center", padding: "11px 12px", borderRadius: 12, border: "none", cursor: "pointer", fontWeight: 600, fontSize: 14, background: "transparent", color: C.muted }}><LogOut size={19} /> Déconnexion{me ? ` (${me.name})` : ""}</button>
           </div>
         </aside>
@@ -1907,7 +2166,7 @@ export default function App() {
             )}
 
             {tab === "accueil" && <TabAccueil go={go} totalCA={totalCA} totalReste={totalReste} goal={goal} pct={pct} beneficeNet={beneficeNet} lowStock={lowStock} facturesRetard={facturesRetard} kanban={kanban} prospects={prospects} />}
-            {tab === "menu" && <TabMenu go={go} categories={CATEGORIES} meta={TAB_META} unread={unread} me={me} onLogout={() => setUnlocked(false)} />}
+            {tab === "menu" && <TabMenu go={go} categories={CATEGORIES} meta={TAB_META} unread={unread} me={me} onLogout={() => setUnlocked(false)} upd={upd} />}
             {tab === "vendre" && <TabVendre products={products} setProducts={setProducts} stockMoves={stockMoves} setStockMoves={setStockMoves} prospects={prospects} setProspects={setProspects} team={team} currentUser={currentUser} codes={codes} agency={agency} go={go} />}
             {tab === "stock" && <TabStock products={products} setProducts={setProducts} stockMoves={stockMoves} setStockMoves={setStockMoves} team={team} currentUser={currentUser} />}
             {tab === "objectif" && <TabObjectif goal={goal} setGoal={setGoal} totalCA={totalCA} totalCommission={totalCommission} pct={pct} prospects={prospects} team={team} codes={codes} commissionRate={commissionRate} />}
@@ -1937,7 +2196,7 @@ export default function App() {
                 {tab === "formation" && <TabFormation team={team} codes={codes} guides={guides} formationLiens={formationLiens} />}
               </>
             )}
-            {category === "admin" && <TabAdministration section={tab} caisse={caisse} setCaisse={setCaisse} team={team} setTeam={setTeam} codes={codes} setCodes={setCodes} onResetAll={resetAllData} onCloseMonth={closeMonthManually} onRestoreArchive={restoreArchive} currentMonth={currentMonth()} agency={agency} setAgency={setAgency} guides={guides} setGuides={setGuides} formationLiens={formationLiens} setFormationLiens={setFormationLiens} pricing={pricing} setPricing={setPricing} commissionRate={commissionRate} setCommissionRate={setCommissionRate} />}
+            {category === "admin" && <TabAdministration section={tab} caisse={caisse} setCaisse={setCaisse} team={team} setTeam={setTeam} codes={codes} setCodes={setCodes} onResetAll={resetAllData} onCloseMonth={closeMonthManually} onRestoreArchive={restoreArchive} onBackupNow={backupNow} onRestoreBackup={restoreBackup} currentMonth={currentMonth()} agency={agency} setAgency={setAgency} guides={guides} setGuides={setGuides} formationLiens={formationLiens} setFormationLiens={setFormationLiens} pricing={pricing} setPricing={setPricing} commissionRate={commissionRate} setCommissionRate={setCommissionRate} />}
           </div>
         </div>
 
@@ -5514,7 +5773,7 @@ function ArchStat({ label, value, color }) {
   );
 }
 
-function TabAdministration({ section, caisse, setCaisse, team, setTeam, codes, setCodes, onResetAll, onCloseMonth, onRestoreArchive, currentMonth, agency, setAgency, guides, setGuides, formationLiens, setFormationLiens, pricing, setPricing, commissionRate, setCommissionRate }) {
+function TabAdministration({ section, caisse, setCaisse, team, setTeam, codes, setCodes, onResetAll, onCloseMonth, onRestoreArchive, onBackupNow, onRestoreBackup, currentMonth, agency, setAgency, guides, setGuides, formationLiens, setFormationLiens, pricing, setPricing, commissionRate, setCommissionRate }) {
   const [adminUnlocked, setAdminUnlocked] = useState(false);
   // Mois a archiver par defaut = le mois precedent (ex. aujourd'hui septembre -> "2026-08").
   const prevMonth = (() => { const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - 1); return d.toISOString().slice(0, 7); })();
@@ -5943,6 +6202,8 @@ function TabAdministration({ section, caisse, setCaisse, team, setTeam, codes, s
 
       {section === "adminRecup" && <AdminRecuperation onRestoreArchive={onRestoreArchive} />}
 
+      {section === "adminSauvegardes" && <AdminSauvegardes onBackupNow={onBackupNow} onRestoreBackup={onRestoreBackup} />}
+
       {section === "adminReset" && (<>
       <div>
         <H2>Clôturer un mois</H2>
@@ -6156,7 +6417,7 @@ function TabAccueil({ go, totalCA, totalReste, goal, pct, beneficeNet, lowStock,
 }
 
 /* ---------------------------------- MENU ---------------------------------- */
-function TabMenu({ go, categories, meta, unread, me, onLogout }) {
+function TabMenu({ go, categories, meta, unread, me, onLogout, upd }) {
   const kinds = { ventes: "or", produits: "bl", pilotage: "ok", marketing: "or", ressources: "ok", admin: "bl" };
   return (
     <div>
@@ -6186,6 +6447,7 @@ function TabMenu({ go, categories, meta, unread, me, onLogout }) {
           </div>
         </div>
       ))}
+      {upd && <UpdateCard upd={upd} />}
     </div>
   );
 }
