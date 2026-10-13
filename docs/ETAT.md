@@ -206,3 +206,16 @@ Branche `ccr-5b04f8c0-vt8y8v` (pas encore fusionnée dans `main`).
   - bouton « Commander sur WhatsApp » vers le numéro de l'agence.
   - Limite : l'aperçu WhatsApp du lien montre le titre général de l'app, pas la photo du produit, car il n'y a pas de rendu côté serveur.
 - **Icônes** : copiées sous de nouveaux noms dans `public/icons/kg-*.png` (manifest, index.html, sw.js). Ainsi les téléphones ne gardent plus l'ancienne icône en cache.
+
+## 2026-10-13 — Annuler / modifier une vente
+
+- **Vendre → « Ventes faites »** (aussi accessible depuis l'écran du reçu) : la liste des ventes du mois. Chaque vente a trois boutons : Reçu, Modifier, Annuler la vente. Le code du CEO est demandé pour modifier ou annuler.
+- `changeSale` garde tout synchronisé :
+  - le total du client (`prixTotal`) ;
+  - le paiement de la vente (`salePayment` : id + 1 ou même n° de reçu) ;
+  - le statut du client ;
+  - le stock, avec un mouvement « correction » ou « annulation » ;
+  - l'historique du client.
+- Un client créé par la seule vente annulée (comptoir ou nouveau, `source: "vente"`) est retiré.
+- Si le client a payé plus que le nouveau total, un message rappelle de le rembourser.
+- Les ventes des mois archivés ne sont pas modifiables ici (les archives se corrigent dans Archives).
