@@ -1549,7 +1549,7 @@ function NotificationBanner() {
 }
 
 /* ---------------------------------- MAIN APP ---------------------------------- */
-export default function App() {
+function App() {
   const [tab, setTab] = useState("accueil");
   const [currentUser, setCurrentUser] = useState(null); // membre connecte (id) ou null
   const [loaded, setLoaded] = useState(false);
@@ -2174,8 +2174,8 @@ export default function App() {
 
             {tab === "accueil" && <TabAccueil go={go} totalCA={totalCA} totalReste={totalReste} goal={goal} pct={pct} beneficeNet={beneficeNet} lowStock={lowStock} facturesRetard={facturesRetard} kanban={kanban} prospects={prospects} />}
             {tab === "menu" && <TabMenu go={go} categories={CATEGORIES} meta={TAB_META} unread={unread} me={me} onLogout={() => setUnlocked(false)} upd={upd} />}
-            {tab === "vendre" && <TabVendre products={products} setProducts={setProducts} stockMoves={stockMoves} setStockMoves={setStockMoves} prospects={prospects} setProspects={setProspects} team={team} currentUser={currentUser} codes={codes} agency={agency} go={go} />}
-            {tab === "stock" && <TabStock products={products} setProducts={setProducts} stockMoves={stockMoves} setStockMoves={setStockMoves} team={team} currentUser={currentUser} />}
+            {tab === "vendre" && <TabVendre pricing={pricing} products={products} setProducts={setProducts} stockMoves={stockMoves} setStockMoves={setStockMoves} prospects={prospects} setProspects={setProspects} team={team} currentUser={currentUser} codes={codes} agency={agency} go={go} />}
+            {tab === "stock" && <TabStock pricing={pricing} products={products} setProducts={setProducts} stockMoves={stockMoves} setStockMoves={setStockMoves} team={team} currentUser={currentUser} />}
             {tab === "objectif" && <TabObjectif goal={goal} setGoal={setGoal} totalCA={totalCA} totalCommission={totalCommission} pct={pct} prospects={prospects} team={team} codes={codes} commissionRate={commissionRate} />}
             {tab === "dispos" && <TabDispos dispos={dispos} setDispos={setDispos} team={team} />}
             {tab === "kanban" && <TabKanban kanban={kanban} setKanban={setKanban} checks={checks} setChecks={setChecks} team={team} setTeam={setTeam} codes={codes} />}
@@ -6622,6 +6622,7 @@ const PRODUCT_UNITS = ["Pièce", "Carton", "Sac", "Lot", "Kg", "Litre", "Séance
 function productIcon(p, size = 20) {
   const c = (p && p.categorie) || "";
   if (c === "Formation") return <BookOpen size={size} />;
+  if (c === "Pack") return <Award size={size} />;
   if (c === "Service") return <Sparkles size={size} />;
   if (c === "Digital") return <FileText size={size} />;
   if (c === "Matériel") return <Package size={size} />;
@@ -6629,7 +6630,7 @@ function productIcon(p, size = 20) {
 }
 function productKind(p) {
   const c = (p && p.categorie) || "";
-  return c === "Formation" ? "ok" : c === "Service" ? "or" : c === "Digital" ? "bl" : c === "Matériel" ? "or" : "gr";
+  return c === "Pack" ? "or" : c === "Formation" ? "ok" : c === "Service" ? "or" : c === "Digital" ? "bl" : c === "Matériel" ? "or" : "gr";
 }
 const hasStock = (p) => p && p.suiviStock !== false;
 // Etat du stock : Epuise / Bas / Moyen / OK, ou Service (pas de stock).
@@ -6642,6 +6643,41 @@ function stockState(p) {
   if (seuil > 0 && st <= seuil * 2) return { label: "Moyen", kind: "or", pct };
   return { label: "OK", kind: "ok", pct };
 }
+
+// --- Packs, formations et prestations de « Tarifs » vendus comme des services ---
+function parsePrice(v) {
+  if (typeof v === "number") return v;
+  const m = String(v || "").replace(/[\s  .]/g, "").match(/\d+/);
+  return m ? Number(m[0]) : 0;
+}
+function slugify(t) {
+  return String(t || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60);
+}
+function tarifProducts(pricing) {
+  const P = pricing || {}, out = [];
+  const withVariants = (list, categorie, key) => (list || []).forEach(x => {
+    if (!x || !x.name) return;
+    [["online", "en ligne"], ["presentiel", "présentiel"]].forEach(([k, l]) => {
+      const prix = Number(x[k]);
+      if (prix > 0) out.push({ id: `tarif-${key}-${slugify(x.name)}-${k}`, nom: `${x.name} (${l})`, categorie, prixVente: prix, suiviStock: false, fromTarifs: true, description: x.note || "" });
+    });
+  });
+  withVariants(P.packs, "Pack", "pack");
+  withVariants(P.formations, "Formation", "formation");
+  (P.prestations || []).forEach(x => {
+    const prix = parsePrice(x && x.price);
+    if (x && x.name && prix > 0) out.push({ id: `tarif-service-${slugify(x.name)}`, nom: x.name, categorie: "Service", prixVente: prix, suiviStock: false, fromTarifs: true, description: x.price });
+  });
+  return out;
+}
+// Catalogue de vente = produits du stock + offres de Tarifs (sans doublon de nom).
+function saleCatalog(products, pricing) {
+  const names = new Set((products || []).map(p => String(p.nom || "").trim().toLowerCase()));
+  return [...(products || []), ...tarifProducts(pricing).filter(t => !names.has(t.nom.toLowerCase()))];
+}
+// Lien public d'un produit / service (page que les clients peuvent ouvrir).
+function productLink(p) { return `${window.location.origin}/p/${encodeURIComponent(p.id)}`; }
+function shopLink() { return `${window.location.origin}/boutique`; }
 function ProductThumb({ p, size = 42, radius = 12 }) {
   if (p && p.photo) return <img src={p.photo} alt="" style={{ width: size, height: size, borderRadius: radius, objectFit: "cover", flexShrink: 0 }} />;
   return <span style={{ ...tint[productKind(p)], width: size, height: size, borderRadius: radius, display: "grid", placeItems: "center", flexShrink: 0 }}>{productIcon(p, Math.round(size * 0.45))}</span>;
@@ -6720,10 +6756,54 @@ const MOVE_MOTIFS = {
   sortie: ["Casse", "Perte", "Usage interne", "Cadeau / échantillon", "Correction"],
 };
 function emptyProduct() {
-  return { nom: "", categorie: PRODUCT_CATEGORIES[0], codeBarre: "", unite: PRODUCT_UNITS[0], prixAchat: "", prixVente: "", stock: "", seuil: "", fournisseur: "", suiviStock: true, photo: "" };
+  return { nom: "", categorie: PRODUCT_CATEGORIES[0], codeBarre: "", unite: PRODUCT_UNITS[0], prixAchat: "", prixVente: "", stock: "", seuil: "", fournisseur: "", suiviStock: true, photo: "", description: "" };
 }
 
-function TabStock({ products, setProducts, stockMoves, setStockMoves, team, currentUser }) {
+function ShareButtons({ url, text }) {
+  const [copied, setCopied] = useState(false);
+  async function copy() {
+    try { await navigator.clipboard.writeText(url); setCopied(true); setTimeout(() => setCopied(false), 1500); }
+    catch (e) { window.prompt("Copie ce lien :", url); }
+  }
+  const b = { ...iconBtn, display: "inline-flex", alignItems: "center", gap: 5, padding: "8px 11px", textDecoration: "none", fontSize: 12.5 };
+  return (
+    <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+      <button onClick={copy} style={b}><Copy size={14} /> {copied ? "Copié ✓" : "Copier"}</button>
+      <a href={waLink("", `${text}\n${url}`)} target="_blank" rel="noreferrer" style={{ ...b, color: "#25D366", borderColor: "rgba(37,211,102,.5)" }}><Send size={14} /> WhatsApp</a>
+      <a href={url} target="_blank" rel="noreferrer" style={b} aria-label="Ouvrir le lien"><ExternalLink size={14} /></a>
+    </div>
+  );
+}
+
+// Liens publics : la boutique entiere + une page par produit / service / pack.
+function ProductLinks({ catalog }) {
+  const items = catalog.filter(p => Number(p.prixVente) > 0);
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 12 }}>
+      <Card style={{ borderColor: C.gold }}>
+        <div style={{ fontWeight: 700 }}>Boutique en ligne</div>
+        <div style={{ color: C.muted, fontSize: 12.5, margin: "3px 0 8px" }}>Tous tes produits, services et packs sur une seule page. Le client clique et commande sur WhatsApp.</div>
+        <div style={{ fontSize: 12.5, color: C.goldLight, wordBreak: "break-all", marginBottom: 8 }}>{shopLink()}</div>
+        <ShareButtons url={shopLink()} text="Découvre nos produits et services :" />
+      </Card>
+      {items.length === 0 && <div style={{ color: C.muted, textAlign: "center", padding: 20 }}>Ajoute un produit avec un prix pour avoir son lien.</div>}
+      {items.map(p => (
+        <div key={p.id} style={{ background: C.card, borderRadius: 16, padding: "11px 12px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <ProductThumb p={p} size={38} />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <b style={{ fontSize: 13.5, display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.nom}</b>
+              <div style={{ color: C.muted, fontSize: 12 }}>{fcfa(p.prixVente)} · {p.fromTarifs ? `${p.categorie} (Tarifs)` : p.categorie || "Produit"}</div>
+            </div>
+          </div>
+          <div style={{ marginTop: 8 }}><ShareButtons url={productLink(p)} text={`${p.nom} — ${fcfa(p.prixVente)}`} /></div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function TabStock({ products, setProducts, stockMoves, setStockMoves, team, currentUser, pricing }) {
   const [seg, setSeg] = useState("produits");
   const [view, setView] = useState("list");      // list | form | move
   const [form, setForm] = useState(emptyProduct());
@@ -6864,6 +6944,8 @@ function TabStock({ products, setProducts, stockMoves, setStockMoves, team, curr
             <div><label style={lbl}>Alerte sous</label><input type="number" inputMode="numeric" {...F("seuil")} style={inputStyle} /></div>
           </div>
         )}
+        <label style={{ ...lbl, marginTop: 12 }}>Description (affichée sur le lien du produit)</label>
+        <textarea placeholder="Ce que le client reçoit, les avantages, la durée…" rows={3} {...F("description")} style={{ ...inputStyle, resize: "vertical", fontFamily: "inherit" }} />
         <label style={{ ...lbl, marginTop: 12 }}>Fournisseur</label>
         <input placeholder="Facultatif" {...F("fournisseur")} style={inputStyle} />
         <button onClick={saveProduct} className="kbs-tap" style={{ ...btnGold, width: "100%", height: 54, marginTop: 18 }}><Save size={17} /> Enregistrer le produit</button>
@@ -6940,7 +7022,7 @@ function TabStock({ products, setProducts, stockMoves, setStockMoves, team, curr
         <div style={{ background: C.card, borderRadius: 16, padding: "11px 12px" }}><div style={{ color: C.muted, fontSize: 11.5 }}>Produits</div><div style={{ fontFamily: "Archivo, sans-serif", fontWeight: 800, fontSize: 17, marginTop: 4 }}>{products.length}</div></div>
         <div style={{ background: C.card, borderRadius: 16, padding: "11px 12px" }}><div style={{ color: C.muted, fontSize: 11.5 }}>À racheter</div><div style={{ fontFamily: "Archivo, sans-serif", fontWeight: 800, fontSize: 17, marginTop: 4, color: aRacheter.length ? C.rustLight : C.greenLight }}>{aRacheter.length}</div></div>
       </div>
-      <div style={{ marginTop: 14 }}><Seg options={[["produits", "Produits"], ["mouvements", "Mouvements"], ["inventaire", "Inventaire"]]} value={seg} onChange={setSeg} /></div>
+      <div style={{ marginTop: 14 }}><Seg options={[["produits", "Produits"], ["liens", "Liens"], ["mouvements", "Mouvements"], ["inventaire", "Inventaire"]]} value={seg} onChange={setSeg} /></div>
 
       {seg === "produits" && (<>
         <input placeholder="Rechercher un produit, un code-barres…" value={search} onChange={e => setSearch(e.target.value)} style={{ ...inputStyle, marginTop: 12 }} />
@@ -6968,6 +7050,7 @@ function TabStock({ products, setProducts, stockMoves, setStockMoves, team, curr
                 </button>
                 <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
                   <EditDeleteButtons onEdit={() => openEdit(p)} onDelete={() => deleteProduct(p)} />
+                  <button onClick={() => setSeg("liens")} aria-label="Lien à partager" title="Lien à partager" style={{ background: "none", border: "none", color: C.muted, cursor: "pointer", padding: 4 }}><Link2 size={15} /></button>
                   {hasStock(p) && <button onClick={() => openMove("entree", p.id)} aria-label="Entrée ou sortie" title="Entrée / sortie" style={{ background: "none", border: "none", color: C.muted, cursor: "pointer", padding: 4 }}><Truck size={15} /></button>}
                 </div>
               </div>
@@ -6981,6 +7064,8 @@ function TabStock({ products, setProducts, stockMoves, setStockMoves, team, curr
           </div>
         )}
       </>)}
+
+      {seg === "liens" && <ProductLinks catalog={saleCatalog(products, pricing)} />}
 
       {seg === "mouvements" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 12 }}>
@@ -7018,7 +7103,7 @@ function TabStock({ products, setProducts, stockMoves, setStockMoves, team, curr
 }
 
 /* ---------------------------------- VENDRE ---------------------------------- */
-function TabVendre({ products, setProducts, stockMoves, setStockMoves, prospects, setProspects, team, currentUser, codes, agency, go }) {
+function TabVendre({ products, setProducts, stockMoves, setStockMoves, prospects, setProspects, team, currentUser, codes, agency, go, pricing }) {
   const [step, setStep] = useState("catalogue"); // catalogue | encaisser | recu
   const [cart, setCart] = useState([]);          // [{ key, productId, label, prix, qte }]
   const [search, setSearch] = useState("");
@@ -7035,8 +7120,9 @@ function TabVendre({ products, setProducts, stockMoves, setStockMoves, prospects
   const [lastSale, setLastSale] = useState(null);
   const searchRef = useRef(null);
 
-  const cats = ["Tous", ...Array.from(new Set(products.map(p => p.categorie).filter(Boolean)))];
-  const visible = products.filter(p => (cat === "Tous" || p.categorie === cat) &&
+  const catalog = useMemo(() => saleCatalog(products, pricing), [products, pricing]);
+  const cats = ["Tous", ...Array.from(new Set(catalog.map(p => p.categorie).filter(Boolean)))];
+  const visible = catalog.filter(p => (cat === "Tous" || p.categorie === cat) &&
     (!search.trim() || `${p.nom} ${p.codeBarre || ""}`.toLowerCase().includes(search.trim().toLowerCase())));
   const qteOf = (pid) => (cart.find(c => c.productId === pid) || {}).qte || 0;
   const sousTotal = cart.reduce((s, c) => s + c.prix * c.qte, 0);
@@ -7283,7 +7369,7 @@ function TabVendre({ products, setProducts, stockMoves, setStockMoves, prospects
       </div>
       {cats.length > 1 && <div style={{ marginTop: 12 }}><Chips options={cats} value={cat} onChange={setCat} /></div>}
 
-      {products.length === 0 ? (
+      {catalog.length === 0 ? (
         <Card style={{ textAlign: "center", marginTop: 14 }}>
           <ShoppingBag size={30} color={C.muted} style={{ margin: "4px auto 8px", display: "block" }} />
           <div style={{ fontWeight: 700 }}>Ton catalogue est vide</div>
@@ -7304,7 +7390,7 @@ function TabVendre({ products, setProducts, stockMoves, setStockMoves, prospects
                 : <div style={{ ...tint[productKind(p)], height: 80, borderRadius: 13, display: "grid", placeItems: "center", marginBottom: 9 }}>{productIcon(p, 34)}</div>}
               <div style={{ fontWeight: 700, fontSize: 12.5, lineHeight: 1.25, height: 31, overflow: "hidden" }}>{p.nom}</div>
               <div style={{ fontFamily: "Archivo, sans-serif", fontWeight: 700, fontSize: 14.5, marginTop: 4 }}>{numFr(p.prixVente)} <span style={{ fontFamily: "Figtree, sans-serif", fontWeight: 500, fontSize: 11, color: C.muted }}>FCFA</span></div>
-              <div style={{ fontSize: 11.5, marginTop: 2, color: s.kind === "ko" ? C.rustLight : C.muted }}>{hasStock(p) ? `${numFr(p.stock)} en stock` : "Service · sans stock"}</div>
+              <div style={{ fontSize: 11.5, marginTop: 2, color: s.kind === "ko" ? C.rustLight : C.muted }}>{hasStock(p) ? `${numFr(p.stock)} en stock` : p.fromTarifs ? `${p.categorie} · Tarifs` : "Service · sans stock"}</div>
               <span aria-hidden="true" style={{ position: "absolute", right: 10, bottom: 10, width: 30, height: 30, borderRadius: 10, background: C.card2, display: "grid", placeItems: "center" }}><Plus size={16} /></span>
             </button>
           );
@@ -7343,3 +7429,110 @@ function TabVendre({ products, setProducts, stockMoves, setStockMoves, prospects
 const inputStyle = { background: C.cardAlt, border: `1px solid ${C.border}`, borderRadius: 13, color: C.text, padding: "12px 13px", fontSize: 14, width: "100%", boxSizing: "border-box" };
 const btnGold = { display: "flex", alignItems: "center", justifyContent: "center", gap: 7, background: C.gold, color: "#011B45", border: "none", borderRadius: 15, padding: "13px", fontWeight: 800, fontSize: 14, fontFamily: "Archivo, sans-serif", cursor: "pointer" };
 const iconBtn = { background: "none", border: `1px solid ${C.border}`, borderRadius: 10, color: C.muted, padding: "5px 8px", fontSize: 12, cursor: "pointer" };
+
+
+/* ---------------------------------- BOUTIQUE PUBLIQUE ---------------------------------- */
+// Pages ouvertes par les clients (sans code) : /boutique et /p/<id>. Lecture seule :
+// rien n'est jamais ecrit dans la base depuis ces pages.
+function isPublicPath() { return /^\/(p\/|boutique\/?$)/.test(window.location.pathname); }
+
+function PublicShop() {
+  const [data, setData] = useState(null);
+  const [failed, setFailed] = useState(false);
+  const [cat, setCat] = useState("Tous");
+  const path = window.location.pathname;
+  const productId = path.startsWith("/p/") ? decodeURIComponent(path.slice(3).replace(/\/$/, "")) : null;
+
+  useEffect(() => {
+    (async () => {
+      const fails = [];
+      const products = await loadShared("kbs:products", [], fails);
+      const pricing = await loadShared("kbs:pricing", DEFAULT_PRICING, fails);
+      const agency = await loadShared("kbs:agency", DEFAULT_AGENCY, fails);
+      if (fails.length) { setFailed(true); return; }
+      setData({ catalog: saleCatalog(products || [], { ...DEFAULT_PRICING, ...pricing }).filter(p => Number(p.prixVente) > 0), agency: { ...DEFAULT_AGENCY, ...agency } });
+    })();
+  }, []);
+
+  const shell = (children) => (
+    <div style={{ minHeight: "100vh", background: C.bg, color: C.text, fontFamily: "Figtree, sans-serif", fontSize: 14 }}>
+      <style>{FONT_IMPORT}</style>
+      {children}
+    </div>
+  );
+  if (failed) return shell(<div style={{ padding: 40, textAlign: "center", color: C.muted }}>Connexion impossible. Vérifie ta connexion puis recharge la page.</div>);
+  if (!data) return shell(<div style={{ padding: 40, textAlign: "center", color: C.muted }}>Chargement…</div>);
+
+  const { catalog, agency } = data;
+  const phone = agency.whatsapp || agency.phone1 || "";
+  const logo = agency.logo || BRAND_LOGO;
+  const order = (p) => waLink(phone, `Bonjour ${agency.name || ""}, je suis intéressé(e) par : ${p.nom} (${fcfa(p.prixVente)}).\n${productLink(p)}`);
+  const header = (
+    <header style={{ display: "flex", alignItems: "center", gap: 12, padding: "16px 18px", borderBottom: `1px solid ${C.border}`, background: C.surf }}>
+      <img src={logo} alt="" style={{ width: 44, height: 44, borderRadius: "50%", objectFit: "cover" }} />
+      <div style={{ minWidth: 0 }}>
+        <div style={{ fontFamily: "Archivo, sans-serif", fontWeight: 800, fontSize: 17 }}>{agency.name || "KBS Digital Agency"}</div>
+        <div style={{ color: C.muted, fontSize: 12 }}>{[agency.phone1, agency.address].filter(Boolean).join(" · ")}</div>
+      </div>
+    </header>
+  );
+  const orderBtn = (p, big) => (
+    <a href={order(p)} target="_blank" rel="noreferrer" style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, height: big ? 54 : 40, borderRadius: big ? 16 : 12, background: "#25D366", color: "#05301A", fontFamily: "Archivo, sans-serif", fontWeight: 800, fontSize: big ? 16 : 13, textDecoration: "none" }}>
+      <Send size={big ? 18 : 15} /> Commander sur WhatsApp
+    </a>
+  );
+
+  if (productId) {
+    const p = catalog.find(x => String(x.id) === productId);
+    return shell(<>
+      {header}
+      <main style={{ maxWidth: 520, margin: "0 auto", padding: "18px 18px 40px" }}>
+        {!p ? (
+          <div style={{ textAlign: "center", color: C.muted, padding: 30 }}>Ce produit n'est plus disponible.</div>
+        ) : (<>
+          {p.photo
+            ? <img src={p.photo} alt={p.nom} style={{ width: "100%", maxHeight: 360, objectFit: "cover", borderRadius: 22, display: "block" }} />
+            : <div style={{ ...tint[productKind(p)], height: 200, borderRadius: 22, display: "grid", placeItems: "center" }}>{productIcon(p, 72)}</div>}
+          <div style={{ marginTop: 16, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+            <Pill kind={productKind(p)}>{p.categorie || "Produit"}</Pill>
+            {hasStock(p) && <Pill kind={Number(p.stock) > 0 ? "ok" : "ko"}>{Number(p.stock) > 0 ? "Disponible" : "Bientôt de retour"}</Pill>}
+          </div>
+          <h1 style={{ fontFamily: "Archivo, sans-serif", fontSize: 26, fontWeight: 800, margin: "10px 0 4px", lineHeight: 1.15 }}>{p.nom}</h1>
+          <div style={{ fontFamily: "Archivo, sans-serif", fontSize: 28, fontWeight: 800, color: C.goldLight }}>{numFr(p.prixVente)} <span style={{ fontSize: 15, color: C.muted, fontWeight: 600 }}>FCFA</span></div>
+          {p.description && <p style={{ color: C.muted, lineHeight: 1.6, whiteSpace: "pre-line", marginTop: 12 }}>{p.description}</p>}
+          <div style={{ marginTop: 18 }}>{orderBtn(p, true)}</div>
+        </>)}
+        <a href="/boutique" style={{ display: "block", textAlign: "center", marginTop: 18, color: C.goldLight, fontWeight: 700, textDecoration: "none" }}>Voir tous nos produits et services</a>
+      </main>
+    </>);
+  }
+
+  const cats = ["Tous", ...Array.from(new Set(catalog.map(p => p.categorie).filter(Boolean)))];
+  const shown = catalog.filter(p => cat === "Tous" || p.categorie === cat);
+  return shell(<>
+    {header}
+    <main style={{ maxWidth: 980, margin: "0 auto", padding: "18px 16px 40px" }}>
+      <h1 style={{ fontFamily: "Archivo, sans-serif", fontSize: 24, fontWeight: 800, margin: "0 0 12px" }}>Nos produits et services</h1>
+      {cats.length > 2 && <div style={{ marginBottom: 14 }}><Chips options={cats} value={cat} onChange={setCat} /></div>}
+      {shown.length === 0 && <div style={{ color: C.muted }}>Aucun produit pour l'instant.</div>}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(100%, 220px), 1fr))", gap: 12 }}>
+        {shown.map(p => (
+          <div key={p.id} style={{ background: C.card, borderRadius: 18, padding: 10, display: "flex", flexDirection: "column", gap: 8 }}>
+            <a href={`/p/${encodeURIComponent(p.id)}`} style={{ color: C.text, textDecoration: "none" }}>
+              {p.photo
+                ? <img src={p.photo} alt="" style={{ width: "100%", height: 130, objectFit: "cover", borderRadius: 13, display: "block" }} />
+                : <div style={{ ...tint[productKind(p)], height: 130, borderRadius: 13, display: "grid", placeItems: "center" }}>{productIcon(p, 40)}</div>}
+              <div style={{ fontWeight: 700, fontSize: 14, marginTop: 8, lineHeight: 1.3 }}>{p.nom}</div>
+              <div style={{ fontFamily: "Archivo, sans-serif", fontWeight: 800, fontSize: 16, color: C.goldLight, marginTop: 3 }}>{fcfa(p.prixVente)}</div>
+            </a>
+            <div style={{ marginTop: "auto" }}>{orderBtn(p, false)}</div>
+          </div>
+        ))}
+      </div>
+    </main>
+  </>);
+}
+
+export default function Root() {
+  return isPublicPath() ? <PublicShop /> : <App />;
+}

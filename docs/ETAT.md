@@ -192,3 +192,17 @@ Branche `ccr-5b04f8c0-vt8y8v` (pas encore fusionnée dans `main`).
   - la grille montre le montant encaissé de chaque jour et des points (vente / dépense) ;
   - les données viennent du mois en cours et de toutes les archives (`buildDayEvents`, avec dédoublonnage).
 - **Suppression d'une archive** : une sauvegarde complète `backup:avant-suppression:…` est faite d'abord. Si elle échoue, la suppression est annulée.
+
+## 2026-10-13 — Packs dans la vente, liens produits, icônes
+
+- **Catalogue de vente** (`saleCatalog`) : produits du stock + packs, formations (variantes en ligne / présentiel) et prestations de « Tarifs » (`tarifProducts`, sans stock).
+  - Un produit du stock qui porte le même nom qu'une offre de Tarifs la remplace : c'est la façon de lui ajouter une photo et une description.
+- **Liens à partager** : Stock → onglet « Liens ».
+  - Un lien `/boutique` pour tout le catalogue, et un lien `/p/<id>` par produit, service ou pack.
+  - Trois boutons sur chaque lien : Copier, WhatsApp, Ouvrir.
+  - Les produits ont un nouveau champ « Description », affiché sur leur page.
+- **Pages publiques** (`PublicShop`, choisi par `Root` selon l'adresse) :
+  - consultation sans code, en lecture seule ;
+  - bouton « Commander sur WhatsApp » vers le numéro de l'agence.
+  - Limite : l'aperçu WhatsApp du lien montre le titre général de l'app, pas la photo du produit, car il n'y a pas de rendu côté serveur.
+- **Icônes** : copiées sous de nouveaux noms dans `public/icons/kg-*.png` (manifest, index.html, sw.js). Ainsi les téléphones ne gardent plus l'ancienne icône en cache.

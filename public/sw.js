@@ -25,8 +25,8 @@ self.addEventListener('push', (event) => {
   const title = data.title || 'KBSAUTO';
   const options = {
     body: data.body || '',
-    icon: '/icon-192.png',
-    badge: '/icon-192.png',
+    icon: '/icons/kg-192.png',
+    badge: '/icons/kg-192.png',
     data: { url: data.url || '/', tabId: data.tabId || '' },
     vibrate: [200, 100, 200],   // Buzz facon WhatsApp
     tag: 'kbsauto',
