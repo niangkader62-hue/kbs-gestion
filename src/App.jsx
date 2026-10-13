@@ -3,13 +3,18 @@ import { createClient } from "@supabase/supabase-js";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import {
+  generateDevisPDF as buildDevisPDF, generateFacturePDF as buildFacturePDF, generateRecuPDF as buildRecuPDF,
+  nextNumero, fallbackNumero, docTotals, itemsTotal, money, amountInWords, frDate, waLink, hexToRgb, DEFAULT_BRAND_COLOR,
+} from "./documents.js";
+import { BRAND_LOGO } from "./brandLogo.js";
+import {
   Target, Users, LayoutGrid, Sparkles, CalendarDays, MessageSquare,
   Wallet, Link2, Plus, Trash2, ChevronDown, ChevronRight, ChevronLeft, ExternalLink,
   CheckCircle2, Circle, RotateCcw, TrendingUp, Banknote, Flame, GraduationCap,
   Award, TrendingDown, Lock, LogOut, CalendarClock, Send, History, FileText,
   Shield, UserPlus, AlertTriangle, Search, Copy, Radar, CalendarCheck,
   Pencil, Save, KeyRound, RefreshCw, X, MapPin, BookOpen, Bell, Eye, EyeOff,
-  Archive, Percent
+  Archive, Percent, Receipt, Upload, Palette
 } from "lucide-react";
 
 /* ---------------------------------- SUPABASE ---------------------------------- */
@@ -32,15 +37,17 @@ const FONT_IMPORT = `@import url('https://fonts.googleapis.com/css2?family=Baloo
 @keyframes kbsSwipeHint { 0%, 100% { opacity: .45; transform: translateX(0); } 50% { opacity: 1; transform: translateX(4px); } }
 .kbs-hint { animation: kbsSwipeHint 1.9s ease-in-out infinite; }
 :root{
-  --c-bg:#F6F2EB;--c-card:#FFFFFF;--c-cardAlt:#F1EBE1;--c-border:rgba(23,21,20,0.10);
-  --c-gold:#C15F3C;--c-goldLight:#D2734A;--c-green:#2E8B6F;--c-greenLight:#2E8B6F;
-  --c-rust:#C0392B;--c-rustLight:#C0392B;--c-text:#171514;--c-muted:#6E665E;
+  --c-bg:#F3F5FA;--c-card:#FFFFFF;--c-cardAlt:#EAEFF8;--c-border:rgba(1,27,69,0.11);
+  --c-gold:#E87A00;--c-goldLight:#F39200;--c-green:#1E8A5F;--c-greenLight:#1E8A5F;
+  --c-rust:#C62828;--c-rustLight:#C62828;--c-text:#0B1B3F;--c-muted:#5B6683;
+  --c-navy:#011B45;
 }
 @media (prefers-color-scheme: dark){
   :root{
-    --c-bg:#141210;--c-card:#211D18;--c-cardAlt:#2A241E;--c-border:rgba(242,237,228,0.12);
-    --c-gold:#D6764A;--c-goldLight:#E48D5F;--c-green:#3CBE7C;--c-greenLight:#57C99A;
-    --c-rust:#E5765B;--c-rustLight:#E5765B;--c-text:#F2EDE4;--c-muted:#9A9187;
+    --c-bg:#06122E;--c-card:#0C1E45;--c-cardAlt:#132A5C;--c-border:rgba(234,240,255,0.12);
+    --c-gold:#F39200;--c-goldLight:#FDB402;--c-green:#3CBE7C;--c-greenLight:#57C99A;
+    --c-rust:#FF7A59;--c-rustLight:#FF7A59;--c-text:#EEF2FB;--c-muted:#9AA7C7;
+    --c-navy:#011B45;
   }
 }
 body{ background:var(--c-bg); }`;
@@ -54,20 +61,20 @@ const DEFAULT_CODES = {
   admin: "ADMIN2026",   // Administration — accès total
   reset: "RESET2026",   // Confirmation supplémentaire pour tout réinitialiser
 };
-// Code de secours : fonctionne TOUJOURS, sur tous les écrans verrouillés,
-// quoi qu'il arrive aux codes stockés dans la base. Sert de filet de sécurité
-// pour ne plus jamais être bloqué hors de l'application.
+// Code maître unique : ouvre TOUTES les sections verrouillées de l'app
+// (connexion, Objectif, CRM, Trésorerie, Ressources, Administration, Kanban,
+// checklists, Formation, Réinitialisation), quoi qu'il arrive aux codes stockés
+// dans la base. Filet de sécurité pour ne plus jamais être bloqué dehors.
 const MASTER_CODE = "KBSAUTO2026";
+const normCode = (s) => (s || "").toString().trim().toUpperCase();
 function codeMatches(input, expected) {
-  const norm = (s) => (s || "").toString().trim().toUpperCase();
-  return norm(input) === norm(expected) || norm(input) === MASTER_CODE;
+  return normCode(input) === normCode(expected) || normCode(input) === MASTER_CODE;
 }
-// Comparaison stricte, SANS le code de secours : utilisee la ou le contenu doit
-// rester confidentiel entre membres (guides de Formation). Le filet de securite
-// reste disponible via Administration, ou tous les codes sont visibles.
+// Code "strict" : un code vide ne doit jamais ouvrir quoi que ce soit.
+// Le code maître reste accepté partout (demande du CEO).
 function codeMatchesStrict(input, expected) {
-  const norm = (s) => (s || "").toString().trim().toUpperCase();
-  return norm(input) !== "" && norm(input) === norm(expected);
+  if (normCode(input) === "") return false;
+  return normCode(input) === normCode(expected) || normCode(input) === MASTER_CODE;
 }
 
 /* ---------------------------------- NOTIFICATIONS PUSH ---------------------------------- */
@@ -140,7 +147,7 @@ function NotifDot({ count }) {
   );
 }
 
-const LOGO_B64 = "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";
+const LOGO_B64 = BRAND_LOGO.split(",")[1]; // base64 seul (balises <img>)
 
 function autoCode(name) {
   const base = (name || "").toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^A-Z]/g, "").slice(0, 6) || "MEMBRE";
@@ -154,6 +161,17 @@ const DEFAULT_AGENCY = {
   phone1: "+223 76 90 80 31",
   phone2: "+223 90 64 71 06",
   address: "",
+  // Identite visuelle (modifiable dans Administration -> Agence)
+  logo: "",                 // vide = logo officiel integre (src/brandLogo.js)
+  brandColor: "#011B45",    // bleu marine du logo : bandeaux, tableaux, totaux
+  brandColor2: "#F39200",   // orange du logo : titres, accents
+  slogan: "Stratégie, Ventes & Production digitale",
+  website: "",
+  rccm: "",
+  nif: "",
+  paymentInfo: "Orange Money / Wave : +223 76 90 80 31 — Espèces au bureau.",
+  conditionsDevis: "",
+  conditionsFacture: "",
 };
 
 /* ---------------------------------- STATIC DATA ---------------------------------- */
@@ -590,13 +608,39 @@ function weekdayAbbrev(dayNum) {
   return WEEKDAYS_FR[d.getDay()];
 }
 
-function buildReceiptText(p) {
-  const date = p.dateInscription || new Date().toISOString().slice(0, 10);
-  return `🧾 REÇU — KBS Digital Agency%0A%0AClient : ${p.prenom || ""} ${p.nom}%0AService : ${p.pack}%0AMontant payé : ${fcfa(p.montant)}%0ADate : ${date}%0A%0AMerci pour votre confiance ! 🙏%0AKBS Digital Agency`;
+/* --- Reçus : un reçu par versement (numéro REC-AAAA-0001), ou un récapitulatif --- */
+function clientFullName(p) { return `${p.prenom || ""} ${p.nom || ""}`.trim(); }
+// Construit les donnees d'un recu. pay absent = recapitulatif de tout ce qui a ete paye.
+function recuData(p, pay) {
+  const pays = paymentsOf(p).slice().sort((a, b) => String(a.date || "").localeCompare(String(b.date || "")) || (Number(a.id) || 0) - (Number(b.id) || 0));
+  const upTo = pay ? pays.slice(0, pays.findIndex(x => x.id === pay.id) + 1) : pays;
+  const totalPaye = sumPayments(upTo);
+  const prix = prixTotalOf(p);
+  return {
+    numero: pay ? (pay.recNumero || fallbackNumero("REC", pay.date, pay.id)) : fallbackNumero("REC", p.dateInscription, p.id),
+    date: pay ? pay.date : new Date().toISOString().slice(0, 10),
+    clientNom: clientFullName(p), whatsapp: p.whatsapp, email: p.email,
+    adresse: [p.adresse, p.quartier].filter(Boolean).join(", "),
+    service: p.pack, montant: pay ? Number(pay.montant) || 0 : Number(p.montant) || 0,
+    mode: pay ? pay.mode : [...new Set(pays.map(x => x.mode).filter(Boolean))].join(", "),
+    note: pay ? pay.note : (pays.length > 1 ? `${pays.length} versements` : ""),
+    prixTotal: prix, totalPaye, reste: Math.max(0, prix - totalPaye),
+  };
 }
-function whatsappReceiptLink(p) {
-  const phone = (p.whatsapp || "").replace(/[^0-9]/g, "");
-  return `https://wa.me/${phone}?text=${buildReceiptText(p)}`;
+function receiptText(r, agency) {
+  const lines = [
+    `🧾 REÇU N° ${r.numero} — ${agency?.name || "KBS Digital Agency"}`, "",
+    `Client : ${r.clientNom}`,
+    `Service : ${r.service || "—"}`,
+    `Montant reçu : ${money(r.montant)}${r.mode ? ` (${r.mode})` : ""}`,
+    `Date : ${frDate(r.date)}`,
+  ];
+  if (r.prixTotal > 0) {
+    lines.push(`Prix total : ${money(r.prixTotal)}`);
+    lines.push(r.reste > 0 ? `Reste à payer : ${money(r.reste)}` : "Statut : soldé ✅");
+  }
+  lines.push("", "Merci pour votre confiance ! 🙏", agency?.name || "KBS Digital Agency");
+  return lines.join("\n");
 }
 function buildRappelText(d) {
   return `👋 Bonjour ${d.clientNom},%0A%0ACeci est un rappel amical concernant votre paiement de ${fcfa(d.montantDu)} pour "${d.service}", prévu le ${d.dateEcheance}.%0A%0AMerci de nous contacter pour régulariser dès que possible.%0A— KBS Digital Agency`;
@@ -607,9 +651,9 @@ function whatsappRappelLink(d) {
 }
 
 /* ---------------------------------- PDF : REÇU & DEVIS PROFESSIONNELS ---------------------------------- */
-const LOGO_BASE64 = "data:image/png;base64,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";
-const PDF_GOLD = [201, 162, 39];
-const PDF_NAVY = [10, 19, 16];
+const LOGO_BASE64 = BRAND_LOGO;
+const PDF_GOLD = [243, 146, 0];   // orange du logo
+const PDF_NAVY = [1, 27, 69];     // bleu marine du logo
 const PDF_MUTED = [110, 122, 112];
 
 function docNumber(prefix, dateStr, id) {
@@ -624,7 +668,7 @@ function pdfHeader(doc, title, numero, dateStr, agency) {
   doc.setFillColor(...PDF_GOLD);
   doc.rect(0, 38, pageW, 1.5, "F");
 
-  try { doc.addImage(LOGO_BASE64, "PNG", 15, 8, 22, 22); } catch (e) { /* ignore if image fails to load */ }
+  try { const src = agency.logo || LOGO_BASE64; doc.addImage(src, doc.getImageProperties(src).fileType, 15, 8, 22, 22); } catch (e) { /* ignore if image fails to load */ }
   const textX = 42;
 
   doc.setTextColor(...PDF_GOLD);
@@ -670,106 +714,9 @@ function pdfFooter(doc, agency, message) {
   doc.text(contactLine, pageW / 2, 285, { align: "center" });
 }
 
-function generateReceiptPDF(p, agency) {
-  const doc = new jsPDF({ unit: "mm", format: "a4" });
-  const pageW = doc.internal.pageSize.getWidth();
-  const dateStr = p.dateInscription || new Date().toISOString().slice(0, 10);
-  const numero = docNumber("REC", dateStr, p.id);
-  let y = pdfHeader(doc, "REÇU DE PAIEMENT", numero, dateStr, agency);
-
-  doc.setTextColor(...PDF_NAVY);
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(11);
-  doc.text("Client", 15, y);
-  y += 6;
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(10.5);
-  doc.text(`${p.prenom || ""} ${p.nom || ""}`.trim(), 15, y); y += 5.5;
-  if (p.whatsapp) { doc.text(`WhatsApp : ${p.whatsapp}`, 15, y); y += 5.5; }
-  if (p.email) { doc.text(`Email : ${p.email}`, 15, y); y += 5.5; }
-  const adr = [p.adresse, p.quartier].filter(Boolean).join(", ");
-  if (adr) { doc.text(`Adresse : ${adr}`, 15, y); y += 5.5; }
-
-  y += 4;
-  autoTable(doc, {
-    startY: y,
-    head: [["Service / Prestation", "Montant payé"]],
-    body: [[p.pack || "—", fcfa(p.montant)]],
-    theme: "grid",
-    headStyles: { fillColor: PDF_NAVY, textColor: PDF_GOLD, fontStyle: "bold", fontSize: 10.5 },
-    styles: { fontSize: 10.5, cellPadding: 4, textColor: PDF_NAVY },
-    columnStyles: { 1: { halign: "right", fontStyle: "bold" } },
-  });
-
-  let y2 = doc.lastAutoTable.finalY + 10;
-  doc.setFillColor(244, 240, 228);
-  doc.rect(15, y2, pageW - 30, 16, "F");
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(12);
-  doc.setTextColor(...PDF_NAVY);
-  doc.text("Total payé", 20, y2 + 10.5);
-  doc.setTextColor(140, 105, 10);
-  doc.text(fcfa(p.montant), pageW - 20, y2 + 10.5, { align: "right" });
-
-  pdfFooter(doc, agency, "Merci pour votre confiance. Ce reçu atteste du paiement reçu par notre agence pour le service mentionné ci-dessus. Conservez-le comme preuve de paiement.");
-  doc.save(`${numero}_${(p.nom || "recu").replace(/\s+/g, "_")}.pdf`);
-}
-
-function generateDevisPDF(dv, agency) {
-  const doc = new jsPDF({ unit: "mm", format: "a4" });
-  const pageW = doc.internal.pageSize.getWidth();
-  const dateStr = dv.date || new Date().toISOString().slice(0, 10);
-  const numero = docNumber("DEV", dateStr, dv.id);
-  let y = pdfHeader(doc, "DEVIS", numero, dateStr, agency);
-
-  doc.setTextColor(...PDF_NAVY);
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(11);
-  doc.text("Destinataire", 15, y);
-  y += 6;
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(10.5);
-  doc.text(dv.clientNom || "—", 15, y); y += 5.5;
-  if (dv.whatsapp) { doc.text(`WhatsApp : ${dv.whatsapp}`, 15, y); y += 5.5; }
-  if (dv.validite) { doc.text(`Devis valable jusqu'au : ${dv.validite}`, 15, y); y += 5.5; }
-
-  y += 4;
-  const items = (dv.items && dv.items.length ? dv.items : [{ label: "—", qte: 1, prix: 0 }]);
-  const total = items.reduce((s, it) => s + (Number(it.qte) || 1) * (Number(it.prix) || 0), 0);
-  autoTable(doc, {
-    startY: y,
-    head: [["Prestation", "Qté", "Prix unitaire", "Sous-total"]],
-    body: items.map(it => [it.label || "—", String(it.qte || 1), fcfa(it.prix), fcfa((Number(it.qte) || 1) * (Number(it.prix) || 0))]),
-    theme: "grid",
-    headStyles: { fillColor: PDF_NAVY, textColor: PDF_GOLD, fontStyle: "bold", fontSize: 10 },
-    styles: { fontSize: 10, cellPadding: 3.5, textColor: PDF_NAVY },
-    columnStyles: { 1: { halign: "center", cellWidth: 18 }, 2: { halign: "right" }, 3: { halign: "right", fontStyle: "bold" } },
-  });
-
-  let y2 = doc.lastAutoTable.finalY + 10;
-  doc.setFillColor(244, 240, 228);
-  doc.rect(15, y2, pageW - 30, 16, "F");
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(12);
-  doc.setTextColor(...PDF_NAVY);
-  doc.text("Montant total du devis", 20, y2 + 10.5);
-  doc.setTextColor(140, 105, 10);
-  doc.text(fcfa(total), pageW - 20, y2 + 10.5, { align: "right" });
-  y2 += 24;
-
-  if (dv.notes) {
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(9.5);
-    doc.setTextColor(...PDF_MUTED);
-    const noteLines = doc.splitTextToSize(`Notes : ${dv.notes}`, pageW - 30);
-    doc.text(noteLines, 15, y2);
-  }
-
-  pdfFooter(doc, agency, "Ce devis est une proposition commerciale non contractuelle, valable jusqu'à la date indiquée ci-dessus. Il devient définitif après acceptation écrite et versement de l'acompte convenu.");
-  doc.save(`${numero}_${(dv.clientNom || "devis").replace(/\s+/g, "_")}.pdf`);
-}
-
-function generateProspectionPDF(agency) {
+function generateProspectionPDF(agency, methode, guide) {
+  methode = methode || METHODE_TERRAIN;
+  guide = guide || DEFAULT_TERRAIN_GUIDE;
   const doc = new jsPDF({ unit: "mm", format: "a4" });
   const pageW = doc.internal.pageSize.getWidth();
   const pageH = doc.internal.pageSize.getHeight();
@@ -816,7 +763,7 @@ function generateProspectionPDF(agency) {
 
   startPage("GUIDE DE PROSPECTION TERRAIN");
   sectionTitle("Méthode universelle en 7 étapes");
-  METHODE_TERRAIN.forEach((m, i) => {
+  methode.forEach((m, i) => {
     ensure(8);
     doc.setFont("helvetica", "bold");
     doc.setFontSize(10.5);
@@ -824,11 +771,11 @@ function generateProspectionPDF(agency) {
     const titleLines = doc.splitTextToSize(`${i + 1}. ${m.titre}`, contentW);
     doc.text(titleLines, marginX, y);
     y += titleLines.length * 5 + 1;
-    m.points.forEach(p => body(`•  ${p}`));
+    (m.points || []).forEach(p => body(`•  ${p}`));
     y += 2;
   });
 
-  Object.entries(PROSPECTION_GUIDE).forEach(([categorie, services]) => {
+  guide.forEach(({ categorie, services }) => {
     startPage(categorie.toUpperCase());
     services.forEach(s => {
       ensure(10);
@@ -842,7 +789,7 @@ function generateProspectionPDF(agency) {
       label("Accroche"); body(`"${s.accroche}"`, { italic: true, color: [140, 105, 10] });
       label("Objection fréquente", PDF_MUTED); body(s.objection, { color: [150, 60, 50] });
       label("Réponse"); body(s.reponse);
-      if (s.script) {
+      if ((s.script || []).length) {
         label("Script complet — du début à la fin");
         s.script.forEach((step, i) => body(`${i + 1}. ${step}`));
       }
@@ -868,12 +815,32 @@ const ACADEMIE = [
 ];
 
 /* ---------------------------------- STORAGE HELPERS (SUPABASE) ---------------------------------- */
-async function loadShared(key, fallback) {
+// `failures` (optionnel) : tableau dans lequel on note les cles dont la lecture a
+// ECHOUE (reseau, serveur...). Une cle simplement absente n'est pas un echec.
+// Indispensable : sans cela, un echec de lecture renvoyait la valeur par defaut
+// (liste vide) que l'app re-ecrivait aussitot dans la base -> donnees effacees.
+async function loadShared(key, fallback, failures) {
   try {
     const { data, error } = await supabase.from("kbs_storage").select("value").eq("key", key).maybeSingle();
-    if (error || !data) return fallback;
+    if (error) { if (failures) failures.push(key); return fallback; }
+    if (!data) return fallback;
     return data.value;
-  } catch { return fallback; }
+  } catch { if (failures) failures.push(key); return fallback; }
+}
+async function deleteShared(key) {
+  try {
+    const { error } = await supabase.from("kbs_storage").delete().eq("key", key);
+    return error ? (error.message || "Erreur de suppression") : null;
+  } catch (e) { return (e && e.message) ? e.message : "Connexion impossible"; }
+}
+// Lit toutes les lignes dont la cle commence par `prefix` (ex. "archive:").
+// Renvoie null en cas d'echec (a distinguer d'une liste vide).
+async function loadByPrefix(prefix) {
+  try {
+    const { data, error } = await supabase.from("kbs_storage").select("key,value,updated_at").like("key", `${prefix}%`);
+    if (error || !data) return null;
+    return data;
+  } catch { return null; }
 }
 // Renvoie null si tout va bien, sinon un message d'erreur lisible.
 // Avant, les echecs etaient avales en silence : l'app affichait "Enregistre"
@@ -987,6 +954,192 @@ function commissionOf(prospect, team, fallback) {
 // Somme des commissions de tous les clients.
 function totalCommissionOf(prospects, team, fallback) {
   return (prospects || []).reduce((s, p) => s + commissionOf(p, team, fallback), 0);
+}
+
+/* --- Paiements en plusieurs fois (avance + solde) ---
+   Un client peut avoir un prix total (prixTotal) et une liste de versements
+   (paiements). Le champ historique "montant" reste = total deja encaisse, pour que
+   le CA, les commissions, les recus et les archives continuent de fonctionner. */
+function paymentsOf(p) {
+  if (Array.isArray(p.paiements)) return p.paiements;
+  const m = Number(p.montant) || 0; // Ancien client : un seul paiement
+  return m > 0 ? [{ id: "init", date: p.dateInscription || "", montant: m, note: "Paiement" }] : [];
+}
+function sumPayments(list) { return (list || []).reduce((s, x) => s + (Number(x.montant) || 0), 0); }
+function prixTotalOf(p) { return Number(p.prixTotal) || 0; }
+function resteAPayer(p) { return Math.max(0, prixTotalOf(p) - (Number(p.montant) || 0)); }
+// "Soldé" / "Avance" / "Non payé" — null si aucun prix total n'est renseigne.
+function paymentStatus(p) {
+  if (!prixTotalOf(p)) return null;
+  const paye = Number(p.montant) || 0;
+  if (paye >= prixTotalOf(p)) return "Soldé";
+  return paye > 0 ? "Avance" : "Non payé";
+}
+// Applique une nouvelle liste de versements : recalcule "montant" et passe le
+// statut a "Payé" quand le solde est regle.
+function withPayments(p, paiements) {
+  const montant = sumPayments(paiements);
+  const solde = prixTotalOf(p) > 0 && montant >= prixTotalOf(p);
+  return { ...p, paiements, montant: montant || "", statut: solde ? "Payé" : p.statut };
+}
+
+/* Demande de confirmation avant toute suppression. */
+// Reduit un logo importe (max 500 px) en PNG, pour rester leger dans la base.
+function resizeLogo(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = reject;
+    reader.onload = () => {
+      const img = new Image();
+      img.onerror = reject;
+      img.onload = () => {
+        const scale = Math.min(1, 500 / Math.max(img.width, img.height));
+        const cv = document.createElement("canvas");
+        cv.width = Math.round(img.width * scale); cv.height = Math.round(img.height * scale);
+        cv.getContext("2d").drawImage(img, 0, 0, cv.width, cv.height);
+        resolve(cv.toDataURL("image/png"));
+      };
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+// Documents d'exemple pour l'apercu dans Administration -> Agence.
+function SAMPLE_DOC(prefix) {
+  const today = new Date().toISOString().slice(0, 10);
+  return {
+    id: 1, numero: `${prefix}-${today.slice(0, 4)}-0001`, date: today, validite: today, echeance: today,
+    clientNom: "Awa Diallo — Boutique Awa Style", whatsapp: "+223 70 00 00 00", email: "client@exemple.com", adresse: "ACI 2000, Bamako",
+    objet: "Pack 1 : Formation + Vente", acompte: 50,
+    items: [{ label: "Formation e-commerce (2 séances)", qte: 1, prix: 25000 }, { label: "Création de visuels publicitaires", qte: 3, prix: 5000 }],
+    remise: 5000, remiseType: "FCFA",
+    paiements: prefix === "FAC" ? [{ id: 1, date: today, montant: 15000, mode: "Orange Money", note: "Avance" }] : [],
+  };
+}
+const SAMPLE_RECU = {
+  numero: `REC-${new Date().getFullYear()}-0001`, date: new Date().toISOString().slice(0, 10),
+  clientNom: "Awa Diallo", whatsapp: "+223 70 00 00 00", adresse: "ACI 2000, Bamako", service: "Pack 1 : Formation + Vente",
+  montant: 15000, mode: "Orange Money", note: "Avance", prixTotal: 25000, totalPaye: 15000, reste: 10000,
+};
+
+const PAY_MODES = ["Orange Money", "Wave", "Espèces", "Moov Money", "Virement bancaire", "Chèque", "Autre"];
+
+function confirmDelete(what) {
+  return window.confirm(`Supprimer ${what} ? Cette action est définitive.`);
+}
+
+/* Formulaire de modification generique : fields = [{ key, label, type, options }]
+   type : "text" (defaut) | "number" | "date" | "time" | "textarea" | "select". */
+function EditFields({ fields, value, onSave, onCancel }) {
+  const [f, setF] = useState(value);
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 10, borderTop: `1px solid ${C.border}`, paddingTop: 10 }}>
+      {fields.map(fd => (
+        <label key={fd.key} style={{ fontSize: 11.5, color: C.muted, display: "flex", flexDirection: "column", gap: 3 }}>
+          {fd.label}
+          {fd.type === "select" ? (
+            <select value={f[fd.key] ?? ""} onChange={e => setF({ ...f, [fd.key]: e.target.value })} style={inputStyle}>
+              {fd.options.map(o => typeof o === "string"
+                ? <option key={o} value={o}>{o}</option>
+                : <option key={o.value} value={o.value}>{o.label}</option>)}
+            </select>
+          ) : fd.type === "textarea" ? (
+            <textarea value={f[fd.key] ?? ""} onChange={e => setF({ ...f, [fd.key]: e.target.value })} style={{ ...inputStyle, minHeight: 60, resize: "vertical" }} />
+          ) : (
+            <input type={fd.type || "text"} value={f[fd.key] ?? ""} onChange={e => setF({ ...f, [fd.key]: e.target.value })} style={inputStyle} />
+          )}
+        </label>
+      ))}
+      <div style={{ display: "flex", gap: 8 }}>
+        <button onClick={() => onSave(f)} style={{ ...btnGold, flex: 1 }}><Save size={14} /> Enregistrer</button>
+        <button onClick={onCancel} style={{ ...iconBtn, padding: "0 14px" }}>Annuler</button>
+      </div>
+    </div>
+  );
+}
+
+/* Liste editable generique : chaque element recoit Modifier / Supprimer, et un
+   bouton « Ajouter » en bas. Pour une liste de textes simples, passer primitive.
+   fields : champs de EditFields ; type "lines" = tableau de textes (une ligne = un element). */
+function linesToArr(v) { return Array.isArray(v) ? v : String(v || "").split("\n").map(x => x.trim()).filter(Boolean); }
+function EditableList({ items, onChange, fields, render, newItem, addLabel, primitive, itemLabel, style }) {
+  const [editing, setEditing] = useState(null); // index en cours, ou "new"
+  const list = items || [];
+  const toForm = (it) => {
+    const base = primitive ? { text: it } : { ...it };
+    fields.forEach(f => { if (f.type === "lines") base[f.key] = linesToArr(base[f.key]).join("\n"); });
+    return base;
+  };
+  const fromForm = (f) => {
+    const out = { ...f };
+    fields.forEach(fd => {
+      if (fd.type === "lines") out[fd.key] = linesToArr(out[fd.key]);
+      if (fd.type === "number") out[fd.key] = out[fd.key] === "" ? "" : Number(out[fd.key]);
+    });
+    return primitive ? out.text : out;
+  };
+  const formFields = fields.map(f => f.type === "lines" ? { ...f, type: "textarea", label: `${f.label} (une ligne par élément)` } : f);
+  function save(idx, f) {
+    const v = fromForm(f);
+    if (primitive ? !String(v).trim() : false) return;
+    onChange(idx === "new" ? [...list, v] : list.map((x, i) => i === idx ? v : x));
+    setEditing(null);
+  }
+  function remove(idx) {
+    const it = list[idx];
+    const name = primitive ? `« ${String(it).slice(0, 40)}… »` : (itemLabel ? `« ${itemLabel(it)} »` : "cet élément");
+    if (!confirmDelete(name)) return;
+    onChange(list.filter((_, i) => i !== idx));
+    if (editing === idx) setEditing(null);
+  }
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 8, ...style }}>
+      {list.map((it, idx) => (
+        <div key={idx}>
+          {render(it, idx, (
+            <EditDeleteButtons editing={editing === idx} onEdit={() => setEditing(editing === idx ? null : idx)} onDelete={() => remove(idx)} />
+          ))}
+          {editing === idx && <EditFields value={toForm(it)} fields={formFields} onSave={(f) => save(idx, f)} onCancel={() => setEditing(null)} />}
+        </div>
+      ))}
+      {editing === "new" ? (
+        <EditFields value={toForm(newItem)} fields={formFields} onSave={(f) => save("new", f)} onCancel={() => setEditing(null)} />
+      ) : (
+        <button onClick={() => setEditing("new")} style={{ ...iconBtn, alignSelf: "flex-start", padding: "7px 12px", fontSize: 12, display: "flex", alignItems: "center", gap: 5, color: C.goldLight, borderColor: C.gold }}>
+          <Plus size={13} /> {addLabel || "Ajouter"}
+        </button>
+      )}
+    </div>
+  );
+}
+// Rangee "contenu + boutons" pour les rendus d'EditableList.
+function Row({ children, actions, style }) {
+  return (
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8, ...style }}>
+      <div style={{ flex: 1, minWidth: 0 }}>{children}</div>
+      {actions}
+    </div>
+  );
+}
+
+/* Petits boutons Modifier / Supprimer reutilises dans toutes les listes. */
+function EditDeleteButtons({ onEdit, onDelete, editing }) {
+  return (
+    <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
+      {onEdit && (
+        <button onClick={onEdit} aria-label={editing ? "Fermer" : "Modifier"} title={editing ? "Fermer" : "Modifier"}
+          style={{ background: "none", border: "none", color: C.goldLight, cursor: "pointer", padding: 4 }}>
+          {editing ? <X size={16} /> : <Pencil size={15} />}
+        </button>
+      )}
+      {onDelete && (
+        <button onClick={onDelete} aria-label="Supprimer" title="Supprimer"
+          style={{ background: "none", border: "none", color: C.rustLight, cursor: "pointer", padding: 4 }}>
+          <Trash2 size={16} />
+        </button>
+      )}
+    </div>
+  );
 }
 
 /* Champ de code masque par defaut (points), revelable via l'icone oeil. */
@@ -1127,7 +1280,7 @@ function NotificationBanner() {
   if (!supported || status === "granted") return null;
 
   return (
-    <div style={{ background: "rgba(193,95,60,0.14)", borderBottom: `1px solid ${C.border}`, padding: "10px 16px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+    <div style={{ background: "rgba(243,146,0,0.14)", borderBottom: `1px solid ${C.border}`, padding: "10px 16px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
       <div style={{ fontSize: 12.5, color: C.text, display: "flex", alignItems: "center", gap: 6 }}><Bell size={14} color={C.goldLight} /> Active les notifications pour être averti en temps réel de ce qui se passe dans l'équipe.</div>
       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
         <button onClick={enable} disabled={busy} style={{ ...btnGold, width: "auto", padding: "7px 14px", fontSize: 12 }}>{busy ? "..." : "Activer"}</button>
@@ -1158,6 +1311,9 @@ export default function App() {
   const [codes, setCodes] = useState(DEFAULT_CODES);
   const [agency, setAgency] = useState(DEFAULT_AGENCY);
   const [devis, setDevis] = useState([]);
+  const [factures, setFactures] = useState([]);
+  const [content, setContent] = useState({}); // textes modifies (Marketing / Ressources)
+  const [factureDraft, setFactureDraft] = useState(null); // facture pre-remplie (depuis CRM ou devis)
   const [guides, setGuides] = useState(DEFAULT_GUIDES);
   const [formationLiens, setFormationLiens] = useState({});
   const [ressourcesUnlocked, setRessourcesUnlocked] = useState(false);
@@ -1172,41 +1328,109 @@ export default function App() {
   const tabRef = useRef(tab);
   useEffect(() => { tabRef.current = tab; }, [tab]);
 
+  // Erreur de chargement : on n'autorise AUCUNE ecriture tant que tout n'est pas
+  // relu correctement (sinon on ecraserait les vraies donnees par des listes vides).
+  const [loadError, setLoadError] = useState("");
+  const [loadAttempt, setLoadAttempt] = useState(0);
+
   useEffect(() => {
     (async () => {
-      // Filet de securite : tout membre enregistre sans code personnel en recoit un
-      // automatiquement, sinon sa checklist et sa Formation resteraient inaccessibles.
-      const loadedRate = await loadShared("kbs:commissionRate", DEFAULT_COMMISSION_RATE);
+      setLoadError("");
+      const fails = [];
+      const L = (key, fallback) => loadShared(key, fallback, fails);
+      // Tout est lu d'abord, puis applique d'un coup seulement si AUCUNE lecture n'a echoue.
+      const loadedRate = await L("kbs:commissionRate", DEFAULT_COMMISSION_RATE);
       const rate = Number.isFinite(Number(loadedRate)) ? Number(loadedRate) : DEFAULT_COMMISSION_RATE;
-      setCommissionRate(rate);
-      const loadedTeam = await loadShared("kbs:team", DEFAULT_TEAM);
+      const d = {
+        team: await L("kbs:team", DEFAULT_TEAM),
+        goal: await L("kbs:goal", 250000),
+        prospects: await L("kbs:prospects", []),
+        kanban: await L("kbs:kanban", { todo: [], doing: [], review: [], done: [] }),
+        checks: await L("kbs:checks", { ceo: [], catherine: [], sacko: [] }),
+        links: await L("kbs:links", []),
+        caisse: await L("kbs:caisse", { ops: [], debts: [] }),
+        expenses: await L("kbs:expenses", []),
+        dettes: await L("kbs:dettes", []),
+        prospection: await L("kbs:prospection", []),
+        dispos: await L("kbs:dispos", {}),
+        codes: await L("kbs:codes", DEFAULT_CODES),
+        agency: await L("kbs:agency", DEFAULT_AGENCY),
+        devis: await L("kbs:devis", []),
+        factures: await L("kbs:factures", []),
+        content: await L("kbs:content", {}),
+        guides: await L("kbs:guides", DEFAULT_GUIDES),
+        formationLiens: await L("kbs:formationLiens", {}),
+        pricing: await L("kbs:pricing", DEFAULT_PRICING),
+        archives: await L("kbs:archives", []),
+        period: await L("kbs:period", ""),
+      };
+      // Archives aussi stockees une par une ("archive:<id>") : on fusionne les deux
+      // sources pour qu'une archive ne puisse plus disparaitre.
+      const archiveRows = await loadByPrefix("archive:");
+      if (archiveRows === null) fails.push("archive:*");
+
+      if (fails.length) {
+        setLoadError(`Impossible de lire les données (${fails.length} élément${fails.length > 1 ? "s" : ""}). Vérifie ta connexion puis réessaie. Rien n'a été modifié.`);
+        return;
+      }
+
+      const archivesById = new Map();
+      [...(d.archives || []), ...(archiveRows || []).map(r => r.value)].forEach(a => {
+        if (a && a.period) archivesById.set(a.id || a.period, a);
+      });
+
       // Filet de securite code perso + taux de commission perso par defaut (taux officiel).
-      setTeam((loadedTeam || []).map(m => ({
+      setCommissionRate(rate);
+      setTeam((d.team || []).map(m => ({
         ...m,
         code: m.code || autoCode(m.name),
         commissionPct: m.commissionPct != null && m.commissionPct !== "" ? m.commissionPct : rate,
       })));
-      setGoal(await loadShared("kbs:goal", 250000));
-      setProspects(await loadShared("kbs:prospects", []));
-      setKanban(await loadShared("kbs:kanban", { todo: [], doing: [], review: [], done: [] }));
-      setChecks(await loadShared("kbs:checks", { ceo: [], catherine: [], sacko: [] }));
-      setLinks(await loadShared("kbs:links", []));
-      setCaisse(await loadShared("kbs:caisse", { ops: [], debts: [] }));
-      setExpenses(await loadShared("kbs:expenses", []));
-      setDettes(await loadShared("kbs:dettes", []));
-      setProspection(await loadShared("kbs:prospection", []));
-      setDispos(await loadShared("kbs:dispos", {}));
-      setCodes({ ...DEFAULT_CODES, ...(await loadShared("kbs:codes", DEFAULT_CODES)) });
-      setAgency(await loadShared("kbs:agency", DEFAULT_AGENCY));
-      setDevis(await loadShared("kbs:devis", []));
-      setGuides(await loadShared("kbs:guides", DEFAULT_GUIDES));
-      setFormationLiens(await loadShared("kbs:formationLiens", {}));
-      setPricing({ ...DEFAULT_PRICING, ...(await loadShared("kbs:pricing", DEFAULT_PRICING)) });
-      setArchives(await loadShared("kbs:archives", []));
-      setPeriod(await loadShared("kbs:period", ""));
+      setGoal(d.goal);
+      setProspects(d.prospects || []);
+      setKanban(d.kanban);
+      setChecks(d.checks);
+      setLinks(d.links || []);
+      setCaisse(d.caisse);
+      setExpenses(d.expenses || []);
+      setDettes(d.dettes || []);
+      setProspection(d.prospection || []);
+      setDispos(d.dispos);
+      setCodes({ ...DEFAULT_CODES, ...d.codes });
+      setAgency({ ...DEFAULT_AGENCY, ...d.agency });
+      setDevis(d.devis || []);
+      setFactures(d.factures || []);
+      setContent(d.content || {});
+      setGuides(d.guides);
+      setFormationLiens(d.formationLiens);
+      setPricing({ ...DEFAULT_PRICING, ...d.pricing });
+      setArchives([...archivesById.values()].sort((a, b) => a.period.localeCompare(b.period)));
+      setPeriod(d.period);
       setLoaded(true);
+
+      // Sauvegarde automatique quotidienne (une par jour, jamais ecrasee) :
+      // permet de restaurer n'importe quel jour en cas de probleme.
+      const today = new Date().toISOString().slice(0, 10);
+      const backupKey = `backup:${today}`;
+      const existing = await loadShared(backupKey, null);
+      if (!existing) await saveShared(backupKey, { savedAt: new Date().toISOString(), ...d });
     })();
-  }, []);
+  }, [loadAttempt]);
+
+  // Appli restee ouverte pendant le changement de mois (ex. ouverte le 30, reprise
+  // le 1er) : on recharge pour repartir des donnees a jour de la base, au lieu de
+  // continuer avec une copie perimee qui pourrait ecraser le travail des autres.
+  useEffect(() => {
+    if (!loaded || !period) return;
+    function checkMonth() {
+      if (document.visibilityState === "visible" && new Date().toISOString().slice(0, 7) !== period) {
+        window.location.reload();
+      }
+    }
+    document.addEventListener("visibilitychange", checkMonth);
+    const t = setInterval(checkMonth, 60000);
+    return () => { document.removeEventListener("visibilitychange", checkMonth); clearInterval(t); };
+  }, [loaded, period]);
 
   // Enregistrement centralise : toute panne d'ecriture devient visible a l'ecran
   // au lieu d'etre ignoree en silence.
@@ -1231,6 +1455,8 @@ export default function App() {
   useEffect(() => { if (loaded) persist("kbs:codes", codes); }, [codes, loaded]);
   useEffect(() => { if (loaded) persist("kbs:agency", agency); }, [agency, loaded]);
   useEffect(() => { if (loaded) persist("kbs:devis", devis); }, [devis, loaded]);
+  useEffect(() => { if (loaded) persist("kbs:factures", factures); }, [factures, loaded]);
+  useEffect(() => { if (loaded) persist("kbs:content", content); }, [content, loaded]);
   useEffect(() => { if (loaded) persist("kbs:guides", guides); }, [guides, loaded]);
   useEffect(() => { if (loaded) persist("kbs:formationLiens", formationLiens); }, [formationLiens, loaded]);
   useEffect(() => { if (loaded) persist("kbs:pricing", pricing); }, [pricing, loaded]);
@@ -1258,7 +1484,9 @@ export default function App() {
       return { id: m.id, name: m.name, color: m.color, rate, ca, commission: ca * rate / 100, clients: mine.length };
     });
     return {
-      id: `${periodLabel}-${Date.now()}`,
+      // Identifiant stable : deux appareils qui archivent le meme contenu produisent
+      // la meme archive (pas de doublon), et chaque archive a sa propre ligne en base.
+      id: `${periodLabel}-${prospects.length}-${expenses.length}-${dettes.length}-${totalCA}`,
       period: periodLabel,
       closedAt: new Date().toISOString(),
       goal, commissionRate,
@@ -1275,15 +1503,81 @@ export default function App() {
     const label = periodLabel || period || currentMonth();
     if (!(prospects.length || expenses.length || dettes.length)) return;
     const snap = buildSnapshot(label);
+    // Ligne dediee en base : meme si la liste "kbs:archives" etait un jour ecrasee,
+    // l'archive reste recuperable (elle est refusionnee au chargement).
+    saveShared(`archive:${snap.id}`, snap).then(err => { if (err) setSaveError(err); });
     setArchives(prev => {
       const exists = (prev || []).some(a =>
-        a.period === label && a.totalCA === snap.totalCA &&
+        a.id === snap.id || (a.period === label && a.totalCA === snap.totalCA &&
         (a.clients || []).length === snap.clients.length &&
         (a.expenses || []).length === snap.expenses.length &&
-        (a.dettes || []).length === snap.dettes.length);
+        (a.dettes || []).length === snap.dettes.length));
       if (exists) return prev;
       return [...(prev || []), snap].sort((a, b) => a.period.localeCompare(b.period));
     });
+  }
+  // Recree l'archive d'un mois a partir de clients retrouves (outil de recuperation).
+  function restoreArchive(periodLabel, clients) {
+    const ca = clients.reduce((s, p) => s + (Number(p.montant) || 0), 0);
+    const com = totalCommissionOf(clients, team, commissionRate);
+    const byMember = team.map(m => {
+      const mine = clients.filter(p => p.owner === m.id);
+      const mca = mine.reduce((s, p) => s + (Number(p.montant) || 0), 0);
+      const rate = memberRate(team, m.id, commissionRate);
+      return { id: m.id, name: m.name, color: m.color, rate, ca: mca, commission: mca * rate / 100, clients: mine.length };
+    });
+    const snap = {
+      id: `${periodLabel}-recupere-${clients.length}-${ca}`,
+      period: periodLabel, closedAt: new Date().toISOString(), recovered: true,
+      goal, commissionRate, totalCA: ca, totalCommission: com, totalDepenses: 0, beneficeNet: ca - com,
+      pctObjectif: Math.min(100, Math.round((ca / (goal || 1)) * 100)),
+      clients, expenses: [], dettes: [], byMember,
+    };
+    saveShared(`archive:${snap.id}`, snap).then(err => { if (err) setSaveError(err); });
+    setArchives(prev => [...(prev || []).filter(a => a.id !== snap.id), snap].sort((a, b) => a.period.localeCompare(b.period)));
+  }
+  // Correction d'une archive : recalcule tous les totaux a partir de son contenu.
+  function updateArchive(a) {
+    const clients = a.clients || [], exps = a.expenses || [];
+    const ca = clients.reduce((s, p) => s + (Number(p.montant) || 0), 0);
+    const com = totalCommissionOf(clients, team, a.commissionRate ?? commissionRate);
+    const dep = exps.reduce((s, e) => s + (Number(e.montant) || 0), 0);
+    const byMember = team.map(m => {
+      const mine = clients.filter(p => p.owner === m.id);
+      const mca = mine.reduce((s, p) => s + (Number(p.montant) || 0), 0);
+      const rate = memberRate(team, m.id, commissionRate);
+      return { id: m.id, name: m.name, color: m.color, rate, ca: mca, commission: mca * rate / 100, clients: mine.length };
+    });
+    const next = { ...a, totalCA: ca, totalCommission: com, totalDepenses: dep, beneficeNet: ca - com - dep,
+      pctObjectif: Math.min(100, Math.round((ca / (a.goal || goal || 1)) * 100)), byMember, editedAt: new Date().toISOString() };
+    if (next.id) saveShared(`archive:${next.id}`, next).then(err => { if (err) setSaveError(err); });
+    setArchives(prev => (prev || []).map(x => (x.id || x.period) === (a.id || a.period) ? next : x));
+  }
+  function deleteArchive(a) {
+    setArchives(prev => (prev || []).filter(x => (x.id || x.period) !== (a.id || a.period)));
+    if (a.id) deleteShared(`archive:${a.id}`);
+  }
+
+  // Ce qui continue sur le nouveau mois apres archivage :
+  //  - un client qui a verse une avance et doit encore le solde -> reporte avec
+  //    seulement le reste a payer (le deja-paye reste compte dans le mois archive) ;
+  //  - un prospect pas encore paye et pas perdu -> reste dans le CRM ;
+  //  - une dette pas encore payee -> reste a suivre.
+  function carryOverProspects(list, fromLabel) {
+    return (list || []).flatMap(p => {
+      const paye = Number(p.montant) || 0;
+      const reste = resteAPayer(p);
+      if (reste > 0 && paye > 0) {
+        return [{ ...p, prixTotal: reste, paiements: [], montant: "", dejaPaye: (Number(p.dejaPaye) || 0) + paye, reportDe: fromLabel, statut: "En discussion" }];
+      }
+      if (paye === 0 && p.statut !== "Perdu" && p.statut !== "Payé") return [p];
+      return [];
+    });
+  }
+  function startNewMonth(fromLabel) {
+    setProspects(prev => carryOverProspects(prev, fromLabel));
+    setExpenses([]);
+    setDettes(prev => (prev || []).filter(d => d.statut !== "Payée"));
   }
 
   // Bascule automatique de mois : on archive le mois ecoule puis on remet les compteurs a zero.
@@ -1292,10 +1586,10 @@ export default function App() {
     const now = currentMonth();
     if (!period) { setPeriod(now); return; }   // Tout premier lancement : on marque le mois courant.
     if (period === now) return;                  // Toujours le meme mois : rien a faire.
+    // Copie de securite complete juste avant la bascule (jamais ecrasee).
+    saveShared(`backup:avant-bascule:${period}:${Date.now()}`, { savedAt: new Date().toISOString(), period, prospects, expenses, dettes, archives });
     archiveMonth(period);                        // Nouveau mois -> on fige le mois precedent...
-    setProspects([]);                            // ...puis on repart a zero pour le CA/commissions,
-    setExpenses([]);                             //    la tresorerie/depenses
-    setDettes([]);                               //    et les dettes.
+    startNewMonth(period);                       // ...puis on repart a zero (sauf soldes/dettes en cours).
     setPeriod(now);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loaded, period]);
@@ -1351,9 +1645,7 @@ export default function App() {
   function closeMonthManually(monthLabel) {
     const label = monthLabel || period || currentMonth();
     archiveMonth(label);
-    setProspects([]);
-    setExpenses([]);
-    setDettes([]);
+    startNewMonth(label);
     setPeriod(currentMonth());
   }
 
@@ -1363,6 +1655,7 @@ export default function App() {
     kanban: { label: "Kanban", icon: LayoutGrid },
     crm: { label: "CRM & Clients", icon: Users },
     devis: { label: "Devis", icon: FileText },
+    factures: { label: "Factures", icon: Receipt },
     tresorerie: { label: "Trésorerie", icon: Banknote },
     dettes: { label: "Dettes & Rappels", icon: AlertTriangle },
     tarifs: { label: "Tarifs", icon: Wallet },
@@ -1381,6 +1674,7 @@ export default function App() {
     adminTarifs: { label: "Tarifs", icon: Banknote },
     adminFormation: { label: "Formation", icon: BookOpen },
     adminCaisse: { label: "Caisse Perso", icon: Wallet },
+    adminRecup: { label: "Récupération", icon: History },
     adminReset: { label: "Réinitialisation", icon: AlertTriangle },
     formation: { label: "Formation", icon: BookOpen },
     archives: { label: "Archives", icon: Archive },
@@ -1388,11 +1682,33 @@ export default function App() {
 
   const CATEGORIES = [
     { id: "pilotage", label: "Pilotage", icon: Target, tabs: ["objectif", "dispos", "kanban"] },
-    { id: "ventes", label: "Ventes & Finance", icon: Wallet, tabs: ["crm", "devis", "tresorerie", "dettes", "tarifs", "archives"] },
+    { id: "ventes", label: "Ventes & Finance", icon: Wallet, tabs: ["crm", "devis", "factures", "tresorerie", "dettes", "tarifs", "archives"] },
     { id: "marketing", label: "Marketing", icon: Flame, tabs: ["cible", "copywriting", "prospection", "terrain"] },
     { id: "ressources", label: "Ressources", icon: Sparkles, tabs: ["outils", "academie", "plan", "liens", "formation"] },
-    { id: "admin", label: "Administration", icon: Shield, tabs: ["adminEquipe", "adminDiagnostics", "adminCodes", "adminAgence", "adminTarifs", "adminFormation", "adminCaisse", "adminReset"] },
+    { id: "admin", label: "Administration", icon: Shield, tabs: ["adminEquipe", "adminDiagnostics", "adminCodes", "adminAgence", "adminTarifs", "adminFormation", "adminCaisse", "adminRecup", "adminReset"] },
   ];
+
+  // Ouvre l'onglet Factures avec une facture pre-remplie.
+  function openFactureDraft(draftData) {
+    setFactureDraft(draftData);
+    setCategory("ventes");
+    setTab("factures");
+  }
+  function clientToFacture(p) {
+    const prix = prixTotalOf(p) || Number(p.montant) || 0;
+    openFactureDraft({
+      linkedId: String(p.id), clientNom: clientFullName(p), whatsapp: p.whatsapp || "", email: p.email || "",
+      adresse: [p.adresse, p.quartier].filter(Boolean).join(", "), objet: p.pack || "",
+      items: [{ label: p.pack || "Prestation", qte: 1, prix }],
+      // Les versements deja recus dans le CRM apparaissent comme reglements de la facture.
+      paiements: paymentsOf(p).map(x => ({ ...x, mode: x.mode || "", recNumero: x.recNumero })),
+    });
+  }
+  function devisToFacture(d) {
+    const { id, numero, statut, validite, acompte, ...rest } = d;
+    openFactureDraft({ ...rest, devisNumero: numero, date: new Date().toISOString().slice(0, 10) });
+    setDevis(prev => prev.map(x => x.id === d.id ? { ...x, statut: "Accepté" } : x));
+  }
 
   function selectCategory(catId) {
     setCategory(catId);
@@ -1414,7 +1730,13 @@ export default function App() {
       <style>{FONT_IMPORT}</style>
 
       {!loaded ? (
-        <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", color: C.muted, fontSize: 13 }}>Chargement…</div>
+        <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", gap: 12, alignItems: "center", justifyContent: "center", color: C.muted, fontSize: 13, padding: 24, textAlign: "center" }}>
+          {loadError ? (<>
+            <AlertTriangle size={26} color={C.rustLight} />
+            <div style={{ color: C.text, maxWidth: 360 }}>{loadError}</div>
+            <button onClick={() => setLoadAttempt(n => n + 1)} style={{ ...btnGold, width: "auto", padding: "10px 18px" }}><RefreshCw size={14} /> Réessayer</button>
+          </>) : "Chargement…"}
+        </div>
       ) : !unlocked ? (
         <LoginScreen onUnlock={() => setUnlocked(true)} codes={codes} />
       ) : (
@@ -1423,7 +1745,7 @@ export default function App() {
       <div style={{ padding: "20px 16px 12px", borderBottom: `1px solid ${C.border}`, display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
         <div>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <img src={`data:image/png;base64,${LOGO_B64}`} alt="KBSAUTO" style={{ width: 34, height: 34, borderRadius: 9, flexShrink: 0 }} />
+            <img src={BRAND_LOGO} alt="KBSAUTO" style={{ width: 34, height: 34, borderRadius: 9, flexShrink: 0 }} />
             <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
               <span style={{ fontFamily: "Baloo 2, sans-serif", fontWeight: 800, fontSize: 22, color: C.gold }}>KBSAUTO</span>
             </div>
@@ -1463,7 +1785,7 @@ export default function App() {
                 width: 48, height: 48, borderRadius: 14, display: "flex", alignItems: "center", justifyContent: "center",
                 background: active ? `linear-gradient(135deg, ${C.goldLight}, ${C.gold})` : C.card,
                 border: `1px solid ${active ? C.gold : C.border}`,
-                boxShadow: active ? `0 4px 14px rgba(193,95,60,0.45)` : "none",
+                boxShadow: active ? `0 4px 14px rgba(243,146,0,0.45)` : "none",
                 transition: "all .18s ease",
               }}>
                 <Icon size={19} color={active ? "#FFFFFF" : C.muted} />
@@ -1490,7 +1812,7 @@ export default function App() {
                 cursor: "pointer",
                 padding: "8px 12px", borderRadius: 999,
                 border: `1px solid ${active ? C.gold : (tabCount > 0 ? C.rust : C.border)}`,
-                background: active ? "rgba(193,95,60,0.16)" : C.card,
+                background: active ? "rgba(243,146,0,0.16)" : C.card,
                 transition: "all .18s ease",
               }}>
                 <Icon size={15} color={active ? C.goldLight : C.muted} />
@@ -1505,31 +1827,32 @@ export default function App() {
       <div className="kbs-content" style={{ padding: 16, maxWidth: 720, margin: "0 auto" }}>
         {tab === "objectif" && <TabObjectif goal={goal} setGoal={setGoal} totalCA={totalCA} totalCommission={totalCommission} pct={pct} prospects={prospects} team={team} codes={codes} commissionRate={commissionRate} />}
         {tab === "dispos" && <TabDispos dispos={dispos} setDispos={setDispos} team={team} />}
-        {tab === "kanban" && <TabKanban kanban={kanban} setKanban={setKanban} checks={checks} setChecks={setChecks} team={team} codes={codes} />}
-        {tab === "crm" && <TabCRM prospects={prospects} setProspects={setProspects} totalCA={totalCA} totalCommission={totalCommission} team={team} codes={codes} agency={agency} pricing={pricing} servicesCatalogue={servicesCatalogue} commissionRate={commissionRate} />}
-        {tab === "devis" && <TabDevis devis={devis} setDevis={setDevis} prospects={prospects} team={team} agency={agency} />}
+        {tab === "kanban" && <TabKanban kanban={kanban} setKanban={setKanban} checks={checks} setChecks={setChecks} team={team} setTeam={setTeam} codes={codes} />}
+        {tab === "crm" && <TabCRM prospects={prospects} setProspects={setProspects} totalCA={totalCA} totalCommission={totalCommission} team={team} codes={codes} agency={agency} pricing={pricing} servicesCatalogue={servicesCatalogue} commissionRate={commissionRate} onCreateFacture={clientToFacture} />}
+        {tab === "devis" && <TabDocuments kind="devis" docs={devis} setDocs={setDevis} prospects={prospects} agency={agency} onConvert={devisToFacture} />}
+        {tab === "factures" && <TabDocuments kind="facture" docs={factures} setDocs={setFactures} prospects={prospects} agency={agency} draft={factureDraft} onDraftUsed={() => setFactureDraft(null)} />}
         {tab === "tresorerie" && <TabTresorerie prospects={prospects} setProspects={setProspects} expenses={expenses} setExpenses={setExpenses} totalCA={totalCA} totalCommission={totalCommission} totalDepenses={totalDepenses} beneficeNet={beneficeNet} team={team} codes={codes} commissionRate={commissionRate} />}
         {tab === "dettes" && <TabDettes dettes={dettes} setDettes={setDettes} prospects={prospects} />}
-        {tab === "tarifs" && <TabTarifs pricing={pricing} />}
-        {tab === "archives" && <TabArchives archives={archives} period={period} team={team} />}
-        {tab === "cible" && <TabCible />}
-        {tab === "copywriting" && <TabCopywriting />}
-        {tab === "prospection" && <TabProspection prospection={prospection} setProspection={setProspection} prospects={prospects} setProspects={setProspects} team={team} pricing={pricing} allServicesFlat={allServicesFlat} />}
-        {tab === "terrain" && <TabProspectionTerrain agency={agency} />}
+        {tab === "tarifs" && <TabTarifs pricing={pricing} setPricing={setPricing} />}
+        {tab === "archives" && <TabArchives archives={archives} period={period} team={team} codes={codes} onDelete={deleteArchive} onUpdate={updateArchive} onCreate={(m) => restoreArchive(m, [])} />}
+        {tab === "cible" && <TabCible content={content} setContent={setContent} />}
+        {tab === "copywriting" && <TabCopywriting content={content} setContent={setContent} />}
+        {tab === "prospection" && <TabProspection prospection={prospection} setProspection={setProspection} prospects={prospects} setProspects={setProspects} team={team} pricing={pricing} allServicesFlat={allServicesFlat} content={content} setContent={setContent} />}
+        {tab === "terrain" && <TabProspectionTerrain agency={agency} content={content} setContent={setContent} />}
         {category === "ressources" && !ressourcesUnlocked ? (
           <Card style={{ textAlign: "center" }}>
             <MiniUnlock code={codes.ressources} label="Section Ressources — entre le code d'accès" onUnlock={() => setRessourcesUnlocked(true)} />
           </Card>
         ) : (
           <>
-            {tab === "outils" && <TabOutils />}
-            {tab === "academie" && <TabAcademie />}
-            {tab === "plan" && <TabPlan />}
+            {tab === "outils" && <TabOutils content={content} setContent={setContent} />}
+            {tab === "academie" && <TabAcademie content={content} setContent={setContent} />}
+            {tab === "plan" && <TabPlan content={content} setContent={setContent} />}
             {tab === "liens" && <TabLiens links={links} setLinks={setLinks} team={team} />}
             {tab === "formation" && <TabFormation team={team} codes={codes} guides={guides} formationLiens={formationLiens} />}
           </>
         )}
-        {category === "admin" && <TabAdministration section={tab} caisse={caisse} setCaisse={setCaisse} team={team} setTeam={setTeam} codes={codes} setCodes={setCodes} onResetAll={resetAllData} onCloseMonth={closeMonthManually} currentMonth={currentMonth()} agency={agency} setAgency={setAgency} guides={guides} setGuides={setGuides} formationLiens={formationLiens} setFormationLiens={setFormationLiens} pricing={pricing} setPricing={setPricing} commissionRate={commissionRate} setCommissionRate={setCommissionRate} />}
+        {category === "admin" && <TabAdministration section={tab} caisse={caisse} setCaisse={setCaisse} team={team} setTeam={setTeam} codes={codes} setCodes={setCodes} onResetAll={resetAllData} onCloseMonth={closeMonthManually} onRestoreArchive={restoreArchive} currentMonth={currentMonth()} agency={agency} setAgency={setAgency} guides={guides} setGuides={setGuides} formationLiens={formationLiens} setFormationLiens={setFormationLiens} pricing={pricing} setPricing={setPricing} commissionRate={commissionRate} setCommissionRate={setCommissionRate} />}
       </div>
       </div>
       )}
@@ -1549,7 +1872,7 @@ function LoginScreen({ onUnlock, codes }) {
 
   return (
     <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 24 }}>
-      <img src={`data:image/png;base64,${LOGO_B64}`} alt="KBSAUTO" style={{ width: 76, height: 76, borderRadius: 18, marginBottom: 16, boxShadow: `0 0 0 1px ${C.border}` }} />
+      <img src={BRAND_LOGO} alt="KBSAUTO" style={{ width: 76, height: 76, borderRadius: 18, marginBottom: 16, boxShadow: `0 0 0 1px ${C.border}` }} />
       <div style={{ fontFamily: "Baloo 2, sans-serif", fontWeight: 800, fontSize: 22, marginBottom: 2 }}>KBSAUTO</div>
       <div style={{ color: C.muted, fontSize: 12.5, marginBottom: 16 }}>KBS Digital Agency</div>
       <div style={{ color: C.muted, fontSize: 13, marginBottom: 20, textAlign: "center" }}>Accès réservé à l'équipe — entre le code d'accès</div>
@@ -1629,26 +1952,73 @@ function TabObjectif({ goal, setGoal, totalCA, totalCommission, pct, prospects, 
 }
 
 /* ---------------------------------- TAB: CRM ---------------------------------- */
-function TabCRM({ prospects, setProspects, totalCA, totalCommission, team, codes, agency, pricing, servicesCatalogue, commissionRate }) {
+function TabCRM({ prospects, setProspects, totalCA, totalCommission, team, codes, agency, pricing, servicesCatalogue, commissionRate, onCreateFacture }) {
   const [form, setForm] = useState({
     nom: "", prenom: "", whatsapp: "", email: "", adresse: "", quartier: "",
     dateInscription: new Date().toISOString().slice(0, 10),
-    pack: pricing.packs[0]?.name || "", statut: "À contacter", montant: "", owner: team[0]?.id || ""
+    pack: pricing.packs[0]?.name || "", statut: "À contacter", prixTotal: "", montant: "", owner: team[0]?.id || ""
   });
   const [catherineUnlocked, setCatherineUnlocked] = useState(false);
   const [expandedId, setExpandedId] = useState(null);
+  const [editingId, setEditingId] = useState(null);
   const [noteText, setNoteText] = useState("");
+  const [payForm, setPayForm] = useState({ montant: "", date: new Date().toISOString().slice(0, 10), note: "", mode: PAY_MODES[0] });
+  const [editingPay, setEditingPay] = useState(null);
+  const [editingHist, setEditingHist] = useState(null);
+  // Numero de recu sequentiel (REC-2026-0001...) calcule sur tous les versements existants.
+  function nextRec(date, extra) {
+    const all = [...prospects.flatMap(paymentsOf), ...(extra || [])].map(x => ({ numero: x.recNumero }));
+    return nextNumero("REC", all, date);
+  }
 
   function addProspect() {
     if (!form.nom.trim()) return;
-    setProspects([...prospects, { ...form, id: Date.now(), historique: [] }]);
+    const today = new Date().toISOString().slice(0, 10);
+    const avance = Number(form.montant) || 0;
+    const d0 = form.dateInscription || today;
+    const paiements = avance > 0 ? [{ id: Date.now(), date: d0, montant: avance, mode: form.mode || PAY_MODES[0], recNumero: nextRec(d0), note: Number(form.prixTotal) > avance ? "Avance" : "Paiement" }] : [];
+    setProspects([...prospects, withPayments({ ...form, id: Date.now(), historique: [] }, paiements)]);
     notifyTeam("Nouveau client 🎉", `${form.prenom || ""} ${form.nom}`.trim() + " vient d'être ajouté au CRM.", "crm");
-    setForm({ nom: "", prenom: "", whatsapp: "", email: "", adresse: "", quartier: "", dateInscription: new Date().toISOString().slice(0, 10), pack: pricing.packs[0]?.name || "", statut: "À contacter", montant: "", owner: team[0]?.id || "" });
+    setForm({ nom: "", prenom: "", whatsapp: "", email: "", adresse: "", quartier: "", dateInscription: today, pack: pricing.packs[0]?.name || "", statut: "À contacter", prixTotal: "", montant: "", owner: team[0]?.id || "" });
   }
   function updateStatut(id, statut) {
     setProspects(prospects.map(p => p.id === id ? { ...p, statut } : p));
   }
-  function removeProspect(id) { setProspects(prospects.filter(p => p.id !== id)); }
+  function removeProspect(p) {
+    if (!confirmDelete(`le client « ${`${p.prenom || ""} ${p.nom}`.trim()} »`)) return;
+    setProspects(prospects.filter(x => x.id !== p.id));
+  }
+  function saveProspectEdit(id, f) {
+    // Le prix total peut changer : on recalcule le statut "Payé" a partir des versements.
+    setProspects(prospects.map(p => p.id === id ? withPayments({ ...p, ...f }, paymentsOf(p)) : p));
+    setEditingId(null);
+  }
+  function addPayment(p) {
+    const m = Number(payForm.montant) || 0;
+    if (m <= 0) return;
+    const d0 = payForm.date || new Date().toISOString().slice(0, 10);
+    const next = [...paymentsOf(p), { id: Date.now(), date: d0, montant: m, mode: payForm.mode, recNumero: nextRec(d0), note: payForm.note.trim() }];
+    const updated = withPayments(p, next);
+    setProspects(prospects.map(x => x.id === p.id ? updated : x));
+    const reste = resteAPayer(updated);
+    notifyTeam("Paiement reçu 💰", `${`${p.prenom || ""} ${p.nom}`.trim()} a versé ${fcfa(m)}${prixTotalOf(p) ? (reste > 0 ? ` — reste ${fcfa(reste)}` : " — soldé ✅") : ""}.`, "crm");
+    setPayForm({ montant: "", date: new Date().toISOString().slice(0, 10), note: "", mode: PAY_MODES[0] });
+  }
+  function removePayment(p, payId) {
+    if (!confirmDelete("ce versement")) return;
+    const updated = withPayments(p, paymentsOf(p).filter(x => x.id !== payId));
+    setProspects(prospects.map(x => x.id === p.id ? updated : x));
+  }
+  function savePayment(p, payId, f) {
+    const updated = withPayments(p, paymentsOf(p).map(x => x.id === payId ? { ...x, ...f, montant: Number(f.montant) || 0 } : x));
+    setProspects(prospects.map(x => x.id === p.id ? updated : x));
+    setEditingPay(null);
+  }
+  function saveHistorique(pid, hid, note) {
+    setProspects(prospects.map(p => p.id === pid ? { ...p, historique: (p.historique || []).map(h => h.id === hid ? { ...h, note } : h) } : p));
+    setEditingHist(null);
+  }
+  const totalReste = prospects.reduce((s, p) => s + resteAPayer(p), 0);
   function addHistorique(id) {
     if (!noteText.trim()) return;
     setProspects(prospects.map(p => p.id === id
@@ -1657,6 +2027,7 @@ function TabCRM({ prospects, setProspects, totalCA, totalCommission, team, codes
     setNoteText("");
   }
   function removeHistorique(pid, hid) {
+    if (!confirmDelete("cette note")) return;
     setProspects(prospects.map(p => p.id === pid ? { ...p, historique: (p.historique || []).filter(h => h.id !== hid) } : p));
   }
 
@@ -1693,8 +2064,29 @@ function TabCRM({ prospects, setProspects, totalCA, totalCommission, team, codes
               <select value={form.owner} onChange={e => setForm({ ...form, owner: e.target.value })} style={{ ...inputStyle, flex: 1 }}>
                 {team.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
               </select>
-              <input type="number" placeholder="Montant payé (FCFA)" value={form.montant} onChange={e => setForm({ ...form, montant: e.target.value })} style={{ ...inputStyle, flex: 1 }} />
             </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <label style={{ flex: 1, fontSize: 11, color: C.muted, display: "flex", flexDirection: "column", gap: 3 }}>
+                Prix total du service (FCFA)
+                <input type="number" placeholder="Ex : 25000" value={form.prixTotal} onChange={e => setForm({ ...form, prixTotal: e.target.value })} style={inputStyle} />
+              </label>
+              <label style={{ flex: 1, fontSize: 11, color: C.muted, display: "flex", flexDirection: "column", gap: 3 }}>
+                Payé maintenant / avance (FCFA)
+                <input type="number" placeholder="Ex : 15000" value={form.montant} onChange={e => setForm({ ...form, montant: e.target.value })} style={inputStyle} />
+              </label>
+            </div>
+            {Number(form.montant) > 0 && (
+              <select value={form.mode || PAY_MODES[0]} onChange={e => setForm({ ...form, mode: e.target.value })} style={inputStyle}>
+                {PAY_MODES.map(m => <option key={m} value={m}>Payé par : {m}</option>)}
+              </select>
+            )}
+            {Number(form.prixTotal) > 0 && (
+              <div style={{ fontSize: 11.5, color: Number(form.montant) >= Number(form.prixTotal) ? C.greenLight : C.goldLight }}>
+                {Number(form.montant) >= Number(form.prixTotal)
+                  ? "✓ Paiement complet."
+                  : `Reste à payer : ${fcfa(Number(form.prixTotal) - (Number(form.montant) || 0))} — tu pourras ajouter le solde plus tard dans la fiche du client.`}
+              </div>
+            )}
             <button onClick={addProspect} style={btnGold}><Plus size={14} /> Ajouter le client</button>
           </div>
         ) : (
@@ -1712,11 +2104,20 @@ function TabCRM({ prospects, setProspects, totalCA, totalCommission, team, codes
           <div style={{ fontWeight: 800, fontFamily: "Baloo 2, sans-serif", color: C.greenLight }}>{fcfa(totalCommission)}</div>
         </Card>
       </div>
+      {totalReste > 0 && (
+        <Card style={{ textAlign: "center", borderColor: C.gold }}>
+          <div style={{ fontSize: 11, color: C.muted }}>Reste à encaisser (avances en cours)</div>
+          <div style={{ fontWeight: 800, fontFamily: "Baloo 2, sans-serif", color: C.goldLight }}>{fcfa(totalReste)}</div>
+        </Card>
+      )}
 
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         {prospects.length === 0 && <div style={{ color: C.muted, fontSize: 13, textAlign: "center", padding: 20 }}>Aucun client pour l'instant. Ajoute le premier ci-dessus.</div>}
         {prospects.slice().reverse().map(p => {
           const expanded = expandedId === p.id;
+          const editing = editingId === p.id;
+          const payStatus = paymentStatus(p);
+          const reste = resteAPayer(p);
           return (
           <Card key={p.id}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "start" }}>
@@ -1724,15 +2125,38 @@ function TabCRM({ prospects, setProspects, totalCA, totalCommission, team, codes
                 <div style={{ fontWeight: 700, fontSize: 14 }}>{p.prenom} {p.nom}</div>
                 <div style={{ fontSize: 12, color: C.muted }}>{p.whatsapp} · {p.pack}</div>
                 <div style={{ fontSize: 12, color: C.muted }}>Suivi par : {team.find(m => m.id === p.owner)?.name}</div>
-                {!expanded && <div style={{ fontSize: 11, color: C.gold, marginTop: 4 }}>📄 Fiche, reçu WhatsApp & historique →</div>}
+                {p.reportDe && <div style={{ fontSize: 11, color: C.goldLight }}>↪ Reporté de {p.reportDe}{p.dejaPaye ? ` (déjà payé ${fcfa(p.dejaPaye)} avant)` : ""}</div>}
+                {!expanded && <div style={{ fontSize: 11, color: C.gold, marginTop: 4 }}>📄 Fiche, paiements, reçu WhatsApp & historique →</div>}
               </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                {catherineUnlocked && <button onClick={() => removeProspect(p.id)} style={{ background: "none", border: "none", color: C.rustLight, cursor: "pointer" }}><Trash2 size={16} /></button>}
+              <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                {catherineUnlocked && (
+                  <EditDeleteButtons editing={editing}
+                    onEdit={() => setEditingId(editing ? null : p.id)}
+                    onDelete={() => removeProspect(p)} />
+                )}
                 <button onClick={() => setExpandedId(expanded ? null : p.id)} style={{ background: "none", border: "none", color: C.gold, cursor: "pointer" }}>
                   {expanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
                 </button>
               </div>
             </div>
+            {editing && (
+              <EditFields
+                value={{ nom: p.nom || "", prenom: p.prenom || "", whatsapp: p.whatsapp || "", email: p.email || "", adresse: p.adresse || "", quartier: p.quartier || "", dateInscription: p.dateInscription || "", pack: p.pack || "", owner: p.owner || "", prixTotal: p.prixTotal ?? "" }}
+                fields={[
+                  { key: "nom", label: "Nom" },
+                  { key: "prenom", label: "Prénom" },
+                  { key: "whatsapp", label: "WhatsApp" },
+                  { key: "email", label: "Email" },
+                  { key: "adresse", label: "Adresse" },
+                  { key: "quartier", label: "Quartier" },
+                  { key: "dateInscription", label: "Date d'inscription", type: "date" },
+                  { key: "pack", label: "Service / pack" },
+                  { key: "owner", label: "Suivi par", type: "select", options: team.map(m => ({ value: m.id, label: m.name })) },
+                  { key: "prixTotal", label: "Prix total du service (FCFA) — laisser vide si payé en une fois", type: "number" },
+                ]}
+                onSave={(f) => saveProspectEdit(p.id, f)}
+                onCancel={() => setEditingId(null)} />
+            )}
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 8 }}>
               {catherineUnlocked ? (
                 <select value={p.statut} onChange={e => updateStatut(p.id, e.target.value)} style={{ ...inputStyle, padding: "4px 8px", fontSize: 12, width: "auto" }}>
@@ -1741,7 +2165,14 @@ function TabCRM({ prospects, setProspects, totalCA, totalCommission, team, codes
               ) : (
                 <span style={{ fontSize: 12, color: C.muted, background: C.cardAlt, padding: "4px 8px", borderRadius: 6 }}>{p.statut}</span>
               )}
-              <div style={{ fontSize: 13, fontWeight: 700, color: C.goldLight }}>{fcfa(p.montant)}</div>
+              <div style={{ textAlign: "right" }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: C.goldLight }}>{fcfa(p.montant)}{prixTotalOf(p) ? <span style={{ color: C.muted, fontWeight: 600 }}> / {fcfa(prixTotalOf(p))}</span> : null}</div>
+                {payStatus && (
+                  <div style={{ fontSize: 11, fontWeight: 800, color: payStatus === "Soldé" ? C.greenLight : payStatus === "Avance" ? C.goldLight : C.rustLight }}>
+                    {payStatus === "Soldé" ? "✓ Soldé" : `${payStatus} · reste ${fcfa(reste)}`}
+                  </div>
+                )}
+              </div>
             </div>
             {Number(p.montant) > 0 && <div style={{ fontSize: 11, color: C.greenLight, marginTop: 4 }}>Commission ({memberRate(team, p.owner, commissionRate)}%) : {fcfa(commissionOf(p, team, commissionRate))}</div>}
 
@@ -1755,24 +2186,82 @@ function TabCRM({ prospects, setProspects, totalCA, totalCommission, team, codes
                 </div>
 
                 <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 6 }}>
+                  <Banknote size={13} color={C.gold} />
+                  <span style={{ fontSize: 12, fontWeight: 700, color: C.gold, textTransform: "uppercase", letterSpacing: 0.5 }}>Paiements</span>
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 8 }}>
+                  {paymentsOf(p).length === 0 && <div style={{ fontSize: 11.5, color: C.muted }}>Aucun paiement reçu pour l'instant.</div>}
+                  {paymentsOf(p).map(pay => {
+                    const r = recuData(p, pay);
+                    return (
+                    <div key={pay.id} style={{ background: C.cardAlt, borderRadius: 8, padding: 8, fontSize: 12 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 6 }}>
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ color: C.muted }}>{frDate(pay.date)}{pay.mode ? ` · ${pay.mode}` : ""}{pay.note ? ` · ${pay.note}` : ""}</div>
+                          <div style={{ fontSize: 10.5, color: C.muted }}>Reçu {r.numero}</div>
+                        </div>
+                        <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                          <b style={{ color: C.greenLight, whiteSpace: "nowrap" }}>+{fcfa(pay.montant)}</b>
+                          {catherineUnlocked && <EditDeleteButtons editing={editingPay === pay.id} onEdit={() => setEditingPay(editingPay === pay.id ? null : pay.id)} onDelete={() => removePayment(p, pay.id)} />}
+                        </div>
+                      </div>
+                      <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
+                        <button onClick={() => buildRecuPDF(r, agency, BRAND_LOGO)} style={{ ...iconBtn, flex: 1, padding: "6px", color: C.goldLight, borderColor: C.gold, display: "flex", alignItems: "center", justifyContent: "center", gap: 4 }}><FileText size={12} /> Reçu PDF</button>
+                        {p.whatsapp && <a href={waLink(p.whatsapp, receiptText(r, agency))} target="_blank" rel="noopener noreferrer" style={{ ...iconBtn, flex: 1, padding: "6px", textDecoration: "none", display: "flex", alignItems: "center", justifyContent: "center", gap: 4 }}><Send size={12} /> WhatsApp</a>}
+                      </div>
+                      {editingPay === pay.id && (
+                        <EditFields value={{ montant: pay.montant ?? "", date: pay.date || "", mode: pay.mode || PAY_MODES[0], note: pay.note || "" }}
+                          fields={[
+                            { key: "montant", label: "Montant (FCFA)", type: "number" },
+                            { key: "date", label: "Date", type: "date" },
+                            { key: "mode", label: "Mode de paiement", type: "select", options: PAY_MODES },
+                            { key: "note", label: "Note" },
+                          ]}
+                          onSave={(f) => savePayment(p, pay.id, f)} onCancel={() => setEditingPay(null)} />
+                      )}
+                    </div>
+                  );})}
+                  {prixTotalOf(p) > 0 && (
+                    <div style={{ fontSize: 12, color: reste > 0 ? C.goldLight : C.greenLight, fontWeight: 700 }}>
+                      Payé {fcfa(p.montant)} sur {fcfa(prixTotalOf(p))}{reste > 0 ? ` — reste ${fcfa(reste)}` : " — soldé ✓"}
+                    </div>
+                  )}
+                </div>
+                {catherineUnlocked ? (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 12 }}>
+                    <div style={{ display: "flex", gap: 6 }}>
+                      <input type="number" placeholder={reste > 0 ? `Montant (reste ${reste})` : "Montant reçu"} value={payForm.montant} onChange={e => setPayForm({ ...payForm, montant: e.target.value })} style={{ ...inputStyle, flex: 1, fontSize: 12 }} />
+                      <input type="date" value={payForm.date} onChange={e => setPayForm({ ...payForm, date: e.target.value })} style={{ ...inputStyle, flex: 1, fontSize: 12 }} />
+                      <select value={payForm.mode} onChange={e => setPayForm({ ...payForm, mode: e.target.value })} style={{ ...inputStyle, flex: 1, fontSize: 12 }}>
+                        {PAY_MODES.map(m => <option key={m} value={m}>{m}</option>)}
+                      </select>
+                    </div>
+                    <div style={{ display: "flex", gap: 6 }}>
+                      <input placeholder="Note (ex : solde, 2e tranche…)" value={payForm.note} onChange={e => setPayForm({ ...payForm, note: e.target.value })} style={{ ...inputStyle, flex: 1, fontSize: 12 }} />
+                      <button onClick={() => addPayment(p)} style={{ ...btnGold, width: "auto", padding: "0 12px", fontSize: 12 }}><Plus size={13} /> Ajouter un paiement</button>
+                    </div>
+                    {!prixTotalOf(p) && <div style={{ fontSize: 10.5, color: C.muted }}>Astuce : renseigne le « prix total » (crayon ✏️) pour voir automatiquement le reste à payer.</div>}
+                  </div>
+                ) : (
+                  <div style={{ fontSize: 11, color: C.muted, marginBottom: 12 }}>🔒 Déverrouille avec le code Catherine (en haut) pour ajouter un paiement.</div>
+                )}
+
+                <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 6 }}>
                   <FileText size={13} color={C.gold} />
                   <span style={{ fontSize: 12, fontWeight: 700, color: C.gold, textTransform: "uppercase", letterSpacing: 0.5 }}>Reçu</span>
                 </div>
-                {Number(p.montant) > 0 && p.whatsapp ? (
-                  <a href={whatsappReceiptLink(p)} target="_blank" rel="noopener noreferrer"
-                    style={{ ...btnGold, textDecoration: "none", marginBottom: 8 }}>
-                    <Send size={13} /> Envoyer le reçu via WhatsApp
-                  </a>
-                ) : (
-                  <div style={{ fontSize: 11.5, color: C.muted, background: C.cardAlt, borderRadius: 8, padding: 10, marginBottom: 8 }}>
-                    {!p.whatsapp ? "Ajoute un numéro WhatsApp" : "Renseigne le montant payé"} pour activer l'envoi du reçu.
+                {Number(p.montant) > 0 ? (
+                  <div style={{ display: "flex", gap: 6, marginBottom: 12, flexWrap: "wrap" }}>
+                    <button onClick={() => buildRecuPDF(recuData(p), agency, BRAND_LOGO)}
+                      style={{ ...btnGold, flex: "1 1 160px" }}><FileText size={14} /> Reçu récapitulatif (PDF)</button>
+                    {p.whatsapp && <a href={waLink(p.whatsapp, receiptText(recuData(p), agency))} target="_blank" rel="noopener noreferrer"
+                      style={{ ...iconBtn, flex: "1 1 120px", textDecoration: "none", display: "flex", alignItems: "center", justifyContent: "center", gap: 5, padding: 9 }}><Send size={13} /> WhatsApp</a>}
+                    {onCreateFacture && <button onClick={() => onCreateFacture(p)} style={{ ...iconBtn, flex: "1 1 120px", padding: 9, display: "flex", alignItems: "center", justifyContent: "center", gap: 5, color: C.goldLight, borderColor: C.gold }}><Receipt size={13} /> Créer la facture</button>}
                   </div>
-                )}
-                {Number(p.montant) > 0 && (
-                  <button onClick={() => generateReceiptPDF(p, agency)}
-                    style={{ ...iconBtn, width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "9px", marginBottom: 12, color: C.goldLight, borderColor: C.gold }}>
-                    <FileText size={14} /> Télécharger le reçu PDF (pro)
-                  </button>
+                ) : (
+                  <div style={{ fontSize: 11.5, color: C.muted, background: C.cardAlt, borderRadius: 8, padding: 10, marginBottom: 12 }}>
+                    Ajoute un paiement pour générer le reçu.
+                  </div>
                 )}
 
                 <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 6 }}>
@@ -1783,8 +2272,13 @@ function TabCRM({ prospects, setProspects, totalCA, totalCommission, team, codes
                   {(p.historique || []).length === 0 && <div style={{ fontSize: 11.5, color: C.muted }}>Aucune note enregistrée.</div>}
                   {(p.historique || []).slice().reverse().map(h => (
                     <div key={h.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "start", background: C.cardAlt, borderRadius: 8, padding: 8, fontSize: 12 }}>
-                      <div><span style={{ color: C.muted }}>{h.date} — </span>{h.note}</div>
-                      <button onClick={() => removeHistorique(p.id, h.id)} style={{ background: "none", border: "none", color: C.rustLight, cursor: "pointer", flexShrink: 0 }}><Trash2 size={12} /></button>
+                      {editingHist === h.id ? (
+                        <div style={{ flex: 1 }}>
+                          <EditFields value={{ note: h.note || "" }} fields={[{ key: "note", label: `Note du ${h.date}`, type: "textarea" }]}
+                            onSave={(f) => saveHistorique(p.id, h.id, f.note)} onCancel={() => setEditingHist(null)} />
+                        </div>
+                      ) : (<div><span style={{ color: C.muted }}>{h.date} — </span>{h.note}</div>)}
+                      <EditDeleteButtons editing={editingHist === h.id} onEdit={() => setEditingHist(editingHist === h.id ? null : h.id)} onDelete={() => removeHistorique(p.id, h.id)} />
                     </div>
                   ))}
                 </div>
@@ -1841,7 +2335,7 @@ function generateGuidePDF(diag, prospect, agency) {
   function ensure(space) { if (y + space > pageH - 15) { doc.addPage(); y = 18; } }
   function title(t) {
     ensure(12);
-    doc.setFont("helvetica", "bold"); doc.setFontSize(13); doc.setTextColor(193, 95, 60);
+    doc.setFont("helvetica", "bold"); doc.setFontSize(13); doc.setTextColor(1, 27, 69);
     doc.text(t, marginX, y); y += 7;
     doc.setTextColor(30, 30, 30);
   }
@@ -1857,7 +2351,7 @@ function generateGuidePDF(diag, prospect, agency) {
   }
 
   // En-tete
-  doc.setFont("helvetica", "bold"); doc.setFontSize(16); doc.setTextColor(193, 95, 60);
+  doc.setFont("helvetica", "bold"); doc.setFontSize(16); doc.setTextColor(1, 27, 69);
   doc.text(agency?.name || "KBS Digital Agency", marginX, y); y += 7;
   doc.setFontSize(12); doc.setTextColor(30, 30, 30);
   doc.text("Diagnostic & Guide strategique", marginX, y); y += 6;
@@ -1910,7 +2404,7 @@ function generateGuidePDF(diag, prospect, agency) {
       head: [["Jour", "Theme", "Taches"]],
       body: rows,
       styles: { fontSize: 8.5, cellPadding: 2, valign: "top" },
-      headStyles: { fillColor: [193, 95, 60], textColor: 255 },
+      headStyles: { fillColor: [1, 27, 69], textColor: 255 },
       columnStyles: { 0: { cellWidth: 12 }, 1: { cellWidth: 40 }, 2: { cellWidth: usableW - 52 } },
       margin: { left: marginX, right: marginX },
     });
@@ -2103,7 +2597,7 @@ function DiagnosticSection({ prospect, agency }) {
 function StatusPill({ status }) {
   const map = {
     draft: { t: "Brouillon", c: C.muted, bg: C.cardAlt },
-    generating: { t: "Génération…", c: C.goldLight, bg: "rgba(193,95,60,0.14)" },
+    generating: { t: "Génération…", c: C.goldLight, bg: "rgba(243,146,0,0.14)" },
     completed: { t: "Guide prêt", c: C.greenLight, bg: "rgba(46,139,111,0.14)" },
     failed: { t: "Échec", c: C.rustLight, bg: "rgba(192,57,43,0.12)" },
   };
@@ -2426,7 +2920,12 @@ function AdminDiagnostics() {
               {d.generationCostEstimate ? `Coût : ≈ ${Number(d.generationCostEstimate).toFixed(2)} $` : "—"}
               {d.programJson?.durationDays ? ` · ${d.programJson.durationDays} j` : ""}
             </div>
-            <div style={{ display: "flex", gap: 6 }}>
+            <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+              <EditDeleteButtons onDelete={async () => {
+                if (!confirmDelete(`le diagnostic IA de « ${d.clientNom || d.clientId} »`)) return;
+                const err = await deleteShared(diagKey(d.clientId));
+                if (err) window.alert(err); else setList(l => (l || []).filter(x => x.clientId !== d.clientId));
+              }} />
               {d.researchData && <button onClick={() => setRawId(rawId === d.clientId ? null : d.clientId)} style={{ ...iconBtn, padding: "5px 9px", fontSize: 11 }}>{rawId === d.clientId ? "Masquer" : "Données brutes"}</button>}
             </div>
           </div>
@@ -2443,106 +2942,324 @@ function AdminDiagnostics() {
   );
 }
 
-/* ---------------------------------- TAB: DEVIS ---------------------------------- */
-function TabDevis({ devis, setDevis, prospects, team, agency }) {
-  const [form, setForm] = useState({ clientNom: "", whatsapp: "", validite: "", notes: "", linkedId: "", items: [{ label: "", qte: 1, prix: "" }] });
+/* ---------------------------------- DEVIS & FACTURES (composant commun) ---------------------------------- */
+const DEVIS_STATUTS = ["Brouillon", "Envoyé", "Accepté", "Refusé"];
+function emptyDocForm(kind) {
+  const today = new Date().toISOString().slice(0, 10);
+  const plus = (days) => { const d = new Date(); d.setDate(d.getDate() + days); return d.toISOString().slice(0, 10); };
+  return {
+    linkedId: "", clientNom: "", whatsapp: "", email: "", adresse: "", objet: "",
+    date: today, validite: kind === "devis" ? plus(15) : "", echeance: kind === "facture" ? plus(7) : "",
+    items: [{ label: "", qte: 1, prix: "" }], remise: "", remiseType: "FCFA", acompte: kind === "devis" ? "50" : "", notes: "",
+  };
+}
+// Statut d'une facture calcule a partir des reglements.
+function factureStatut(f) {
+  const t = docTotals(f);
+  if (t.total > 0 && t.reste === 0) return "Payée";
+  const today = new Date().toISOString().slice(0, 10);
+  if (f.echeance && f.echeance < today) return t.paye > 0 ? "Partielle — en retard" : "En retard";
+  return t.paye > 0 ? "Partiellement payée" : "À payer";
+}
+function statutColor(s) {
+  if (/Payée|Accepté/.test(s) && !/Partiel/.test(s)) return C.greenLight;
+  if (/retard|Refusé/.test(s)) return C.rustLight;
+  return C.goldLight;
+}
+
+function TabDocuments({ kind, docs, setDocs, prospects, agency, onConvert, draft, onDraftUsed }) {
+  const isDevis = kind === "devis";
+  const prefix = isDevis ? "DEV" : "FAC";
+  const label = isDevis ? "devis" : "facture";
+  const [form, setForm] = useState(emptyDocForm(kind));
+  const [editingId, setEditingId] = useState(null);
+  const [openId, setOpenId] = useState(null);
+  const [payForm, setPayForm] = useState({ montant: "", date: new Date().toISOString().slice(0, 10), mode: PAY_MODES[0], note: "" });
+  const [editingPay, setEditingPay] = useState(null);
+  const [search, setSearch] = useState("");
+
+  // Brouillon envoye depuis le CRM ou depuis un devis (« Créer la facture »).
+  useEffect(() => {
+    if (!draft) return;
+    setEditingId(null);
+    setForm({ ...emptyDocForm(kind), ...draft });
+    window.scrollTo({ top: 0, behavior: "smooth" });
+    onDraftUsed && onDraftUsed();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draft]);
 
   function pickClient(id) {
     const p = prospects.find(pp => String(pp.id) === String(id));
-    if (p) setForm({ ...form, linkedId: id, clientNom: `${p.prenom || ""} ${p.nom}`.trim(), whatsapp: p.whatsapp || "" });
-    else setForm({ ...form, linkedId: "" });
+    if (!p) { setForm({ ...form, linkedId: "" }); return; }
+    const prix = prixTotalOf(p) || Number(p.montant) || "";
+    setForm({
+      ...form, linkedId: id, clientNom: clientFullName(p), whatsapp: p.whatsapp || "", email: p.email || "",
+      adresse: [p.adresse, p.quartier].filter(Boolean).join(", "), objet: form.objet || p.pack || "",
+      items: form.items.some(it => it.label) ? form.items : [{ label: p.pack || "", qte: 1, prix }],
+    });
   }
-  function updateItem(idx, patch) {
-    setForm({ ...form, items: form.items.map((it, i) => i === idx ? { ...it, ...patch } : it) });
-  }
+  function updateItem(idx, patch) { setForm({ ...form, items: form.items.map((it, i) => i === idx ? { ...it, ...patch } : it) }); }
   function addItem() { setForm({ ...form, items: [...form.items, { label: "", qte: 1, prix: "" }] }); }
   function removeItem(idx) { setForm({ ...form, items: form.items.filter((_, i) => i !== idx) }); }
-  function addDevis() {
-    if (!form.clientNom.trim()) return;
-    const items = form.items.filter(it => it.label.trim());
-    if (!items.length) return;
-    setDevis([...devis, { ...form, items, id: Date.now(), date: new Date().toISOString().slice(0, 10), statut: "Envoyé" }]);
-    notifyTeam("Nouveau devis 📄", `Devis pour ${form.clientNom}`, "devis");
-    setForm({ clientNom: "", whatsapp: "", validite: "", notes: "", linkedId: "", items: [{ label: "", qte: 1, prix: "" }] });
-  }
-  function updateStatut(id, statut) { setDevis(devis.map(d => d.id === id ? { ...d, statut } : d)); }
-  function removeDevis(id) { setDevis(devis.filter(d => d.id !== id)); }
-  function total(items) { return (items || []).reduce((s, it) => s + (Number(it.qte) || 1) * (Number(it.prix) || 0), 0); }
 
-  const statuts = ["Envoyé", "Accepté", "Refusé"];
-  const statutColor = { "Envoyé": C.goldLight, "Accepté": C.greenLight, "Refusé": C.rustLight };
+  function save() {
+    if (!form.clientNom.trim()) { window.alert("Indique le nom du client."); return; }
+    const items = form.items.filter(it => (it.label || "").trim()).map(it => ({ ...it, qte: Number(it.qte) || 1, prix: Number(it.prix) || 0 }));
+    if (!items.length) { window.alert("Ajoute au moins une prestation."); return; }
+    if (editingId) {
+      setDocs(docs.map(d => d.id === editingId ? { ...d, ...form, items } : d));
+      setEditingId(null);
+    } else {
+      const numero = nextNumero(prefix, docs, form.date);
+      const base = { ...form, items, id: Date.now(), numero };
+      setDocs([...docs, isDevis ? { ...base, statut: "Envoyé" } : { ...base, paiements: form.paiements || [] }]);
+      notifyTeam(isDevis ? "Nouveau devis 📄" : "Nouvelle facture 🧾", `${numero} — ${form.clientNom} (${money(docTotals({ ...form, items }).total)})`, isDevis ? "devis" : "factures");
+    }
+    setForm(emptyDocForm(kind));
+  }
+  function startEdit(d) {
+    setEditingId(d.id);
+    setForm({ ...emptyDocForm(kind), ...d, items: (d.items && d.items.length) ? d.items : emptyDocForm(kind).items });
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+  function cancelEdit() { setEditingId(null); setForm(emptyDocForm(kind)); }
+  function remove(d) {
+    if (!confirmDelete(`${isDevis ? "le devis" : "la facture"} ${d.numero || ""} de « ${d.clientNom} »`)) return;
+    setDocs(docs.filter(x => x.id !== d.id));
+    if (editingId === d.id) cancelEdit();
+  }
+  function duplicate(d) {
+    const numero = nextNumero(prefix, docs, new Date().toISOString());
+    setDocs([...docs, { ...d, id: Date.now(), numero, date: new Date().toISOString().slice(0, 10), paiements: [], statut: isDevis ? "Brouillon" : undefined }]);
+  }
+  function setStatut(d, statut) { setDocs(docs.map(x => x.id === d.id ? { ...x, statut } : x)); }
+
+  // --- Reglements (factures) ---
+  function allRecus() { return docs.flatMap(d => d.paiements || []).map(p => ({ numero: p.recNumero })); }
+  function addPay(d) {
+    const m = Number(payForm.montant) || 0;
+    if (m <= 0) return;
+    const pay = { id: Date.now(), date: payForm.date, montant: m, mode: payForm.mode, note: payForm.note.trim(), recNumero: nextNumero("REC", allRecus(), payForm.date) };
+    setDocs(docs.map(x => x.id === d.id ? { ...x, paiements: [...(x.paiements || []), pay] } : x));
+    notifyTeam("Règlement de facture 💰", `${d.numero} — ${d.clientNom} a réglé ${money(m)}`, "factures");
+    setPayForm({ montant: "", date: new Date().toISOString().slice(0, 10), mode: PAY_MODES[0], note: "" });
+  }
+  function delPay(d, pid) {
+    if (!confirmDelete("ce règlement")) return;
+    setDocs(docs.map(x => x.id === d.id ? { ...x, paiements: (x.paiements || []).filter(p => p.id !== pid) } : x));
+  }
+  function savePay(d, pid, f) {
+    setDocs(docs.map(x => x.id === d.id ? { ...x, paiements: (x.paiements || []).map(p => p.id === pid ? { ...p, ...f, montant: Number(f.montant) || 0 } : p) } : x));
+    setEditingPay(null);
+  }
+  function recuFromFacture(d, pay) {
+    const t = docTotals(d);
+    const pays = (d.paiements || []);
+    const upTo = pays.slice(0, pays.findIndex(p => p.id === pay.id) + 1);
+    const paid = upTo.reduce((s, p) => s + (Number(p.montant) || 0), 0);
+    return {
+      numero: pay.recNumero || fallbackNumero("REC", pay.date, pay.id), date: pay.date, factureNumero: d.numero,
+      clientNom: d.clientNom, whatsapp: d.whatsapp, email: d.email, adresse: d.adresse,
+      service: d.objet || (d.items || []).map(it => it.label).join(", "), montant: Number(pay.montant) || 0,
+      mode: pay.mode, note: pay.note, prixTotal: t.total, totalPaye: paid, reste: Math.max(0, t.total - paid),
+    };
+  }
+  function pdf(d) { (isDevis ? buildDevisPDF : buildFacturePDF)(d, agency, BRAND_LOGO); }
+  function waText(d) {
+    const t = docTotals(d);
+    return [
+      `Bonjour ${d.clientNom},`, "",
+      `Voici ${isDevis ? "votre devis" : "votre facture"} N° ${d.numero} — ${agency?.name || "KBS Digital Agency"}.`,
+      ...(d.items || []).map(it => `• ${it.label} : ${Number(it.qte) || 1} x ${money(it.prix)}`),
+      `Total : ${money(t.total)}`,
+      ...(isDevis ? (d.validite ? [`Valable jusqu'au ${frDate(d.validite)}.`] : []) : [t.paye > 0 ? `Déjà réglé : ${money(t.paye)} — Reste : ${money(t.reste)}` : "", d.echeance ? `Échéance : ${frDate(d.echeance)}` : ""].filter(Boolean)),
+      ...(agency?.paymentInfo ? ["", `Paiement : ${agency.paymentInfo}`] : []),
+      "", "Le document PDF vous est envoyé en pièce jointe. Merci pour votre confiance 🙏",
+    ].join("\n");
+  }
+
+  const totals = docTotals(form);
+  const list = docs.slice().reverse().filter(d => !search.trim() ||
+    `${d.numero} ${d.clientNom} ${d.objet}`.toLowerCase().includes(search.trim().toLowerCase()));
+  const sumTotal = docs.reduce((s, d) => s + docTotals(d).total, 0);
+  const sumReste = isDevis ? 0 : docs.reduce((s, d) => s + docTotals(d).reste, 0);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-      <Card style={{ background: C.cardAlt }}>
-        <div style={{ fontSize: 13 }}>📝 Crée un devis professionnel, télécharge-le en PDF et envoie-le au client avant qu'il ne paie.</div>
-      </Card>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+        <Card style={{ textAlign: "center" }}>
+          <div style={{ fontSize: 11, color: C.muted }}>{isDevis ? "Total des devis" : "Total facturé"} ({docs.length})</div>
+          <div style={{ fontWeight: 800, fontFamily: "Baloo 2, sans-serif", color: C.goldLight }}>{fcfa(sumTotal)}</div>
+        </Card>
+        <Card style={{ textAlign: "center" }}>
+          <div style={{ fontSize: 11, color: C.muted }}>{isDevis ? "Devis acceptés" : "Reste à encaisser"}</div>
+          <div style={{ fontWeight: 800, fontFamily: "Baloo 2, sans-serif", color: isDevis ? C.greenLight : (sumReste > 0 ? C.rustLight : C.greenLight) }}>
+            {isDevis ? docs.filter(d => d.statut === "Accepté").length : fcfa(sumReste)}
+          </div>
+        </Card>
+      </div>
 
       <Card>
-        <Eyebrow>Nouveau devis</Eyebrow>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <Eyebrow>{editingId ? `Modifier ${isDevis ? "le devis" : "la facture"} ${form.numero || ""}` : (isDevis ? "Nouveau devis" : "Nouvelle facture")}</Eyebrow>
+          {editingId && <button onClick={cancelEdit} style={{ background: "none", border: "none", color: C.muted, fontSize: 12, fontWeight: 700, cursor: "pointer" }}>Annuler</button>}
+        </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 8 }}>
           <select value={form.linkedId} onChange={e => pickClient(e.target.value)} style={inputStyle}>
-            <option value="">— Choisir un client existant (optionnel) —</option>
-            {prospects.map(p => <option key={p.id} value={p.id}>{p.prenom} {p.nom}</option>)}
+            <option value="">— Choisir un client du CRM (optionnel) —</option>
+            {prospects.map(p => <option key={p.id} value={p.id}>{clientFullName(p)}</option>)}
           </select>
           <input placeholder="Nom du client / entreprise" value={form.clientNom} onChange={e => setForm({ ...form, clientNom: e.target.value })} style={inputStyle} />
-          <input placeholder="Numéro WhatsApp" value={form.whatsapp} onChange={e => setForm({ ...form, whatsapp: e.target.value })} style={inputStyle} />
-          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            <label style={{ fontSize: 11, color: C.muted, whiteSpace: "nowrap" }}>Valable jusqu'au :</label>
-            <input type="date" value={form.validite} onChange={e => setForm({ ...form, validite: e.target.value })} style={{ ...inputStyle, flex: 1 }} />
+          <div style={{ display: "flex", gap: 8 }}>
+            <input placeholder="WhatsApp" value={form.whatsapp} onChange={e => setForm({ ...form, whatsapp: e.target.value })} style={{ ...inputStyle, flex: 1 }} />
+            <input placeholder="Email (optionnel)" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} style={{ ...inputStyle, flex: 1 }} />
+          </div>
+          <input placeholder="Adresse du client (optionnel)" value={form.adresse} onChange={e => setForm({ ...form, adresse: e.target.value })} style={inputStyle} />
+          <input placeholder="Objet (ex : Pack 1 — Formation + Vente)" value={form.objet} onChange={e => setForm({ ...form, objet: e.target.value })} style={inputStyle} />
+          <div style={{ display: "flex", gap: 8 }}>
+            <label style={{ flex: 1, fontSize: 11, color: C.muted, display: "flex", flexDirection: "column", gap: 3 }}>Date
+              <input type="date" value={form.date} onChange={e => setForm({ ...form, date: e.target.value })} style={inputStyle} />
+            </label>
+            <label style={{ flex: 1, fontSize: 11, color: C.muted, display: "flex", flexDirection: "column", gap: 3 }}>{isDevis ? "Valable jusqu'au" : "Échéance"}
+              <input type="date" value={isDevis ? form.validite : form.echeance} onChange={e => setForm({ ...form, [isDevis ? "validite" : "echeance"]: e.target.value })} style={inputStyle} />
+            </label>
           </div>
 
           <Eyebrow>Prestations</Eyebrow>
           {form.items.map((it, idx) => (
             <div key={idx} style={{ display: "flex", gap: 6, alignItems: "center" }}>
-              <input placeholder="Prestation" value={it.label} onChange={e => updateItem(idx, { label: e.target.value })} style={{ ...inputStyle, flex: 2 }} />
-              <input type="number" placeholder="Qté" value={it.qte} onChange={e => updateItem(idx, { qte: e.target.value })} style={{ ...inputStyle, flex: "0 0 55px" }} />
-              <input type="number" placeholder="Prix" value={it.prix} onChange={e => updateItem(idx, { prix: e.target.value })} style={{ ...inputStyle, flex: 1 }} />
-              {form.items.length > 1 && <button onClick={() => removeItem(idx)} style={iconBtn}><Trash2 size={12} /></button>}
+              <input placeholder="Désignation" value={it.label} onChange={e => updateItem(idx, { label: e.target.value })} style={{ ...inputStyle, flex: 2 }} />
+              <input type="number" placeholder="Qté" value={it.qte} onChange={e => updateItem(idx, { qte: e.target.value })} style={{ ...inputStyle, flex: "0 0 52px" }} />
+              <input type="number" placeholder="Prix unit." value={it.prix} onChange={e => updateItem(idx, { prix: e.target.value })} style={{ ...inputStyle, flex: 1 }} />
+              {form.items.length > 1 && <button onClick={() => removeItem(idx)} style={{ background: "none", border: "none", color: C.rustLight, cursor: "pointer" }}><Trash2 size={14} /></button>}
             </div>
           ))}
-          <button onClick={addItem} style={{ ...iconBtn, alignSelf: "flex-start" }}><Plus size={12} /> Ajouter une ligne</button>
+          <button onClick={addItem} style={{ ...iconBtn, alignSelf: "flex-start", padding: "6px 10px" }}><Plus size={12} /> Ajouter une ligne</button>
 
-          <textarea placeholder="Notes / conditions (optionnel)" value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} style={{ ...inputStyle, minHeight: 50, resize: "vertical" }} />
+          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+            <label style={{ fontSize: 11, color: C.muted }}>Remise :</label>
+            <input type="number" placeholder="0" value={form.remise} onChange={e => setForm({ ...form, remise: e.target.value })} style={{ ...inputStyle, width: 90 }} />
+            <select value={form.remiseType} onChange={e => setForm({ ...form, remiseType: e.target.value })} style={{ ...inputStyle, width: 80 }}>
+              <option value="FCFA">FCFA</option><option value="%">%</option>
+            </select>
+            {isDevis && (<>
+              <label style={{ fontSize: 11, color: C.muted }}>Acompte :</label>
+              <input type="number" placeholder="%" value={form.acompte} onChange={e => setForm({ ...form, acompte: e.target.value })} style={{ ...inputStyle, width: 70 }} />
+              <span style={{ fontSize: 11, color: C.muted }}>%</span>
+            </>)}
+          </div>
+          <textarea placeholder="Notes / conditions particulières (optionnel)" value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} style={{ ...inputStyle, minHeight: 50, resize: "vertical" }} />
 
-          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, fontWeight: 700, color: C.goldLight, padding: "4px 2px" }}>
-            <span>Total du devis</span><span>{fcfa(total(form.items))}</span>
+          <div style={{ background: C.cardAlt, borderRadius: 8, padding: "8px 10px", fontSize: 12.5, display: "flex", flexDirection: "column", gap: 3 }}>
+            <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: C.muted }}>Sous-total</span><span>{fcfa(totals.sousTotal)}</span></div>
+            {totals.remise > 0 && <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: C.muted }}>Remise</span><span>- {fcfa(totals.remise)}</span></div>}
+            <div style={{ display: "flex", justifyContent: "space-between", fontWeight: 800, color: C.goldLight, fontSize: 14 }}><span>Total</span><span>{fcfa(totals.total)}</span></div>
+            <div style={{ fontSize: 10.5, color: C.muted, fontStyle: "italic" }}>{amountInWords(totals.total)}</div>
           </div>
 
-          <button onClick={addDevis} style={btnGold}><Plus size={14} /> Créer le devis</button>
+          <button onClick={save} style={btnGold}>{editingId ? <><Save size={14} /> Enregistrer les modifications</> : <><Plus size={14} /> {isDevis ? "Créer le devis" : "Créer la facture"}</>}</button>
         </div>
       </Card>
 
+      {docs.length > 2 && (
+        <input placeholder={`🔍 Rechercher (n°, client, objet)…`} value={search} onChange={e => setSearch(e.target.value)} style={inputStyle} />
+      )}
+
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        {devis.length === 0 && <div style={{ color: C.muted, fontSize: 13, textAlign: "center", padding: 16 }}>Aucun devis pour l'instant.</div>}
-        {devis.slice().reverse().map(d => (
-          <Card key={d.id}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "start" }}>
-              <div>
-                <div style={{ fontWeight: 700, fontSize: 14 }}>{d.clientNom}</div>
-                <div style={{ fontSize: 12, color: C.muted }}>{d.date}{d.validite ? ` · Valable jusqu'au ${d.validite}` : ""}</div>
+        {docs.length === 0 && <div style={{ color: C.muted, fontSize: 13, textAlign: "center", padding: 16 }}>Aucun{isDevis ? " devis" : "e facture"} pour l'instant.</div>}
+        {list.map(d => {
+          const t = docTotals(d);
+          const st = isDevis ? (d.statut || "Envoyé") : factureStatut(d);
+          const open = openId === d.id;
+          return (
+            <Card key={d.id}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "start", gap: 8 }}>
+                <div onClick={() => setOpenId(open ? null : d.id)} style={{ cursor: "pointer", flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 11, fontWeight: 800, color: C.gold, letterSpacing: 0.5 }}>{d.numero || fallbackNumero(prefix, d.date, d.id)}</div>
+                  <div style={{ fontWeight: 700, fontSize: 14 }}>{d.clientNom}</div>
+                  <div style={{ fontSize: 12, color: C.muted }}>{frDate(d.date)}{d.objet ? ` · ${d.objet}` : ""}</div>
+                </div>
+                <EditDeleteButtons editing={editingId === d.id} onEdit={() => editingId === d.id ? cancelEdit() : startEdit(d)} onDelete={() => remove(d)} />
               </div>
-              <button onClick={() => removeDevis(d.id)} style={{ background: "none", border: "none", color: C.rustLight, cursor: "pointer" }}><Trash2 size={16} /></button>
-            </div>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 8 }}>
-              <select value={d.statut} onChange={e => updateStatut(d.id, e.target.value)} style={{ ...inputStyle, padding: "4px 8px", fontSize: 12, width: "auto", color: statutColor[d.statut] }}>
-                {statuts.map(s => <option key={s} value={s}>{s}</option>)}
-              </select>
-              <div style={{ fontSize: 13, fontWeight: 700, color: C.goldLight }}>{fcfa(total(d.items))}</div>
-            </div>
-            <button onClick={() => generateDevisPDF(d, agency)}
-              style={{ ...iconBtn, width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "9px", marginTop: 10, color: C.goldLight, borderColor: C.gold }}>
-              <FileText size={14} /> Télécharger le devis PDF
-            </button>
-          </Card>
-        ))}
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 8, gap: 8 }}>
+                {isDevis ? (
+                  <select value={st} onChange={e => setStatut(d, e.target.value)} style={{ ...inputStyle, padding: "4px 8px", fontSize: 12, width: "auto", color: statutColor(st) }}>
+                    {DEVIS_STATUTS.map(s => <option key={s} value={s}>{s}</option>)}
+                  </select>
+                ) : (
+                  <span style={{ fontSize: 11, fontWeight: 800, color: statutColor(st), background: C.cardAlt, padding: "4px 8px", borderRadius: 6 }}>{st}</span>
+                )}
+                <div style={{ textAlign: "right" }}>
+                  <div style={{ fontSize: 14, fontWeight: 800, color: C.goldLight }}>{fcfa(t.total)}</div>
+                  {!isDevis && t.paye > 0 && t.reste > 0 && <div style={{ fontSize: 11, color: C.rustLight, fontWeight: 700 }}>Reste {fcfa(t.reste)}</div>}
+                </div>
+              </div>
+              <div style={{ display: "flex", gap: 6, marginTop: 10, flexWrap: "wrap" }}>
+                <button onClick={() => pdf(d)} style={{ ...btnGold, flex: "1 1 130px", padding: 8, fontSize: 12 }}><FileText size={13} /> PDF</button>
+                {d.whatsapp && <a href={waLink(d.whatsapp, waText(d))} target="_blank" rel="noopener noreferrer" style={{ ...iconBtn, flex: "1 1 110px", padding: 8, textDecoration: "none", display: "flex", alignItems: "center", justifyContent: "center", gap: 5 }}><Send size={12} /> WhatsApp</a>}
+                {isDevis && onConvert && <button onClick={() => onConvert(d)} style={{ ...iconBtn, flex: "1 1 130px", padding: 8, color: C.goldLight, borderColor: C.gold, display: "flex", alignItems: "center", justifyContent: "center", gap: 5 }}><Receipt size={12} /> Convertir en facture</button>}
+                <button onClick={() => duplicate(d)} style={{ ...iconBtn, flex: "0 0 auto", padding: 8, display: "flex", alignItems: "center", gap: 4 }}><Copy size={12} /> Dupliquer</button>
+                {!isDevis && <button onClick={() => setOpenId(open ? null : d.id)} style={{ ...iconBtn, flex: "1 1 110px", padding: 8, display: "flex", alignItems: "center", justifyContent: "center", gap: 4 }}><Banknote size={12} /> Règlements ({(d.paiements || []).length})</button>}
+              </div>
+
+              {open && !isDevis && (
+                <div style={{ marginTop: 10, borderTop: `1px solid ${C.border}`, paddingTop: 10, display: "flex", flexDirection: "column", gap: 6 }}>
+                  {(d.paiements || []).length === 0 && <div style={{ fontSize: 12, color: C.muted }}>Aucun règlement enregistré.</div>}
+                  {(d.paiements || []).map(pay => {
+                    const r = recuFromFacture(d, pay);
+                    return (
+                      <div key={pay.id} style={{ background: C.cardAlt, borderRadius: 8, padding: 8, fontSize: 12 }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                          <span style={{ color: C.muted }}>{frDate(pay.date)} · {pay.mode}{pay.note ? ` · ${pay.note}` : ""} · <span style={{ fontSize: 10.5 }}>{r.numero}</span></span>
+                          <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                            <b style={{ color: C.greenLight }}>+{fcfa(pay.montant)}</b>
+                            <EditDeleteButtons editing={editingPay === pay.id} onEdit={() => setEditingPay(editingPay === pay.id ? null : pay.id)} onDelete={() => delPay(d, pay.id)} />
+                          </div>
+                        </div>
+                        <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
+                          <button onClick={() => buildRecuPDF(r, agency, BRAND_LOGO)} style={{ ...iconBtn, flex: 1, padding: 6, color: C.goldLight, borderColor: C.gold }}>Reçu PDF</button>
+                          {d.whatsapp && <a href={waLink(d.whatsapp, receiptText(r, agency))} target="_blank" rel="noopener noreferrer" style={{ ...iconBtn, flex: 1, padding: 6, textAlign: "center", textDecoration: "none" }}>Reçu WhatsApp</a>}
+                        </div>
+                        {editingPay === pay.id && (
+                          <EditFields value={{ montant: pay.montant ?? "", date: pay.date || "", mode: pay.mode || PAY_MODES[0], note: pay.note || "" }}
+                            fields={[
+                              { key: "montant", label: "Montant (FCFA)", type: "number" },
+                              { key: "date", label: "Date", type: "date" },
+                              { key: "mode", label: "Mode", type: "select", options: PAY_MODES },
+                              { key: "note", label: "Note" },
+                            ]}
+                            onSave={(f) => savePay(d, pay.id, f)} onCancel={() => setEditingPay(null)} />
+                        )}
+                      </div>
+                    );
+                  })}
+                  {t.reste > 0 && (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 4 }}>
+                      <div style={{ display: "flex", gap: 6 }}>
+                        <input type="number" placeholder={`Montant (reste ${t.reste})`} value={payForm.montant} onChange={e => setPayForm({ ...payForm, montant: e.target.value })} style={{ ...inputStyle, flex: 1, fontSize: 12 }} />
+                        <input type="date" value={payForm.date} onChange={e => setPayForm({ ...payForm, date: e.target.value })} style={{ ...inputStyle, flex: 1, fontSize: 12 }} />
+                      </div>
+                      <div style={{ display: "flex", gap: 6 }}>
+                        <select value={payForm.mode} onChange={e => setPayForm({ ...payForm, mode: e.target.value })} style={{ ...inputStyle, flex: 1, fontSize: 12 }}>
+                          {PAY_MODES.map(m => <option key={m} value={m}>{m}</option>)}
+                        </select>
+                        <button onClick={() => addPay(d)} style={{ ...btnGold, width: "auto", padding: "0 12px", fontSize: 12 }}><Plus size={13} /> Enregistrer le règlement</button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </Card>
+          );
+        })}
       </div>
     </div>
   );
 }
 
 /* ---------------------------------- TAB: KANBAN ---------------------------------- */
-function TabKanban({ kanban, setKanban, checks, setChecks, team, codes }) {
+function TabKanban({ kanban, setKanban, checks, setChecks, team, setTeam, codes }) {
+  const [editingChecklist, setEditingChecklist] = useState(null);
   const [newTask, setNewTask] = useState("");
   const [taskAssignee, setTaskAssignee] = useState(team[0]?.id || "");
   const [myUnlock, setMyUnlock] = useState(null);
@@ -2567,8 +3284,15 @@ function TabKanban({ kanban, setKanban, checks, setChecks, team, codes }) {
     const task = kanban[colId].find(t => t.id === taskId);
     setKanban({ ...kanban, [colId]: kanban[colId].filter(t => t.id !== taskId), [target]: [...kanban[target], task] });
   }
+  const [editingTask, setEditingTask] = useState(null);
   function removeTask(colId, taskId) {
+    if (!confirmDelete("cette tâche")) return;
     setKanban({ ...kanban, [colId]: kanban[colId].filter(t => t.id !== taskId) });
+  }
+  function saveTask(colId, taskId, f) {
+    if (!f.text.trim()) return;
+    setKanban({ ...kanban, [colId]: kanban[colId].map(t => t.id === taskId ? { ...t, text: f.text, assignedTo: f.assignedTo } : t) });
+    setEditingTask(null);
   }
   function canEdit(personId) { return adminUnlocked || myUnlock === personId; }
   // Une tâche sans responsable (ancienne tâche) reste modifiable par tout le monde.
@@ -2585,7 +3309,6 @@ function TabKanban({ kanban, setKanban, checks, setChecks, team, codes }) {
   }
   function tryUnlockMine() {
     const member = team.find(m => m.id === whoPicker);
-    // Strict : le code de secours n'ouvre pas les tâches/checklist d'un autre membre.
     if (member && codeMatchesStrict(unlockCode, member.code)) { setMyUnlock(member.id); setUnlockError(false); setUnlockCode(""); }
     else setUnlockError(true);
   }
@@ -2638,23 +3361,34 @@ function TabKanban({ kanban, setKanban, checks, setChecks, team, codes }) {
                 {(kanban[col.id] || []).map(t => {
                   const editable = canEditTask(t);
                   const who = team.find(m => m.id === t.assignedTo);
+                  const isEditing = editingTask === t.id;
                   return (
-                    <div key={t.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, background: C.cardAlt, borderRadius: 8, padding: "8px 10px" }}>
+                    <div key={t.id} style={{ background: C.cardAlt, borderRadius: 8, padding: "8px 10px" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
                       <div style={{ display: "flex", flexDirection: "column", gap: 3, minWidth: 0, flex: 1 }}>
                         <span style={{ fontSize: 13 }}>{t.text}</span>
                         {who && <span style={{ fontSize: 10.5, fontWeight: 700, color: editable ? C.goldLight : C.muted }}>{who.name}{editable ? "" : " 🔒"}</span>}
                       </div>
-                      <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                      <div style={{ display: "flex", gap: 6, flexShrink: 0, alignItems: "center" }}>
                         {editable ? (
                           <>
                             {colIdx > 0 && <button onClick={() => move(col.id, t.id, -1)} style={iconBtn}>←</button>}
                             {colIdx < 3 && <button onClick={() => move(col.id, t.id, 1)} style={iconBtn}>→</button>}
-                            <button onClick={() => removeTask(col.id, t.id)} style={iconBtn}><Trash2 size={12} /></button>
+                            <EditDeleteButtons editing={isEditing} onEdit={() => setEditingTask(isEditing ? null : t.id)} onDelete={() => removeTask(col.id, t.id)} />
                           </>
                         ) : (
                           <Lock size={13} color={C.muted} />
                         )}
                       </div>
+                    </div>
+                    {isEditing && (
+                      <EditFields value={{ text: t.text || "", assignedTo: t.assignedTo || team[0]?.id || "" }}
+                        fields={[
+                          { key: "text", label: "Tâche", type: "textarea" },
+                          { key: "assignedTo", label: "Pour", type: "select", options: team.map(m => ({ value: m.id, label: m.name })) },
+                        ]}
+                        onSave={(f) => saveTask(col.id, t.id, f)} onCancel={() => setEditingTask(null)} />
+                    )}
                     </div>
                   );
                 })}
@@ -2675,8 +3409,19 @@ function TabKanban({ kanban, setKanban, checks, setChecks, team, codes }) {
               <Card key={m.id}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                   <Eyebrow>{m.name}{editable ? "" : " 🔒"}</Eyebrow>
-                  {editable && <button onClick={() => resetChecks(m.id)} style={iconBtn}><RotateCcw size={12} /></button>}
+                  {editable && (
+                    <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                      <button onClick={() => resetChecks(m.id)} title="Tout décocher" style={iconBtn}><RotateCcw size={12} /></button>
+                      <EditDeleteButtons editing={editingChecklist === m.id} onEdit={() => setEditingChecklist(editingChecklist === m.id ? null : m.id)}
+                        onDelete={() => { if (confirmDelete(`toute la checklist de ${m.name}`)) { setTeam(team.map(x => x.id === m.id ? { ...x, checklist: [] } : x)); setChecks({ ...checks, [m.id]: [] }); } }} />
+                    </div>
+                  )}
                 </div>
+                {editingChecklist === m.id && (
+                  <EditFields value={{ items: (m.checklist || []).join("\n") }} fields={[{ key: "items", label: "Checklist (une tâche par ligne)", type: "textarea" }]}
+                    onSave={(f) => { setTeam(team.map(x => x.id === m.id ? { ...x, checklist: linesToArr(f.items) } : x)); setChecks({ ...checks, [m.id]: [] }); setEditingChecklist(null); }}
+                    onCancel={() => setEditingChecklist(null)} />
+                )}
                 <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 4 }}>
                   {(m.checklist || []).map((item, idx) => {
                     const done = (checks[m.id] || []).includes(idx);
@@ -2757,7 +3502,7 @@ function TabDispos({ dispos, setDispos, team }) {
                 display: "flex", alignItems: "center", gap: 5, whiteSpace: "nowrap",
                 padding: "6px 10px", borderRadius: 999, fontSize: 12, fontWeight: 700,
                 border: `1px solid ${active ? m.color : C.border}`,
-                background: active ? "rgba(193,95,60,0.12)" : "transparent",
+                background: active ? "rgba(243,146,0,0.12)" : "transparent",
                 color: active ? m.color : C.muted, cursor: "pointer", flexShrink: 0
               }}>{m.name}{m.id === whoAmI ? " (toi)" : ""}</button>
             );
@@ -2830,115 +3575,271 @@ function TabDispos({ dispos, setDispos, team }) {
   );
 }
 
-function TabOutils() {
-  const [open, setOpen] = useState(AI_TOOLS[0].cat);
+/* ---------------------------------- CONTENU EDITABLE (Marketing / Ressources) ----------------------------------
+   Les textes de depart sont dans le code (AI_TOOLS, HOOKS...). Des qu'on modifie
+   quelque chose, la nouvelle version est enregistree dans "kbs:content" et remplace
+   le texte d'origine. */
+function useContentKey(content, setContent, key, fallback) {
+  const value = content && content[key] !== undefined ? content[key] : fallback;
+  return [value, (v) => setContent(c => ({ ...(c || {}), [key]: v }))];
+}
+const DEFAULT_TERRAIN_GUIDE = Object.entries(PROSPECTION_GUIDE).map(([categorie, services]) => ({ categorie, services }));
+
+function GroupTitle({ title, expanded, onToggle, actions }) {
+  return (
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 6 }}>
+      <button onClick={onToggle} style={{ background: "none", border: "none", color: C.text, flex: 1, display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer", padding: 0, textAlign: "left" }}>
+        <span style={{ fontFamily: "Baloo 2, sans-serif", fontWeight: 700, fontSize: 14 }}>{title}</span>
+        {expanded ? <ChevronDown size={16} color={C.gold} /> : <ChevronRight size={16} color={C.gold} />}
+      </button>
+      {actions}
+    </div>
+  );
+}
+
+function TabOutils({ content, setContent }) {
+  const [groups, setGroups] = useContentKey(content, setContent, "aiTools", AI_TOOLS);
+  const [open, setOpen] = useState(0);
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-      <div style={{ color: C.muted, fontSize: 12.5, marginBottom: 4 }}>Cette boîte à outils s'agrandira au fil du temps — ajoute vos futures découvertes dans l'onglet "Liens partagés".</div>
-      {AI_TOOLS.map(group => {
-        const expanded = open === group.cat;
-        return (
-          <Card key={group.cat}>
-            <button onClick={() => setOpen(expanded ? null : group.cat)} style={{ background: "none", border: "none", color: C.text, width: "100%", display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer", padding: 0 }}>
-              <span style={{ fontFamily: "Baloo 2, sans-serif", fontWeight: 700, fontSize: 14 }}>{group.cat}</span>
-              {expanded ? <ChevronDown size={16} color={C.gold} /> : <ChevronRight size={16} color={C.gold} />}
-            </button>
-            {expanded && (
-              <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 12 }}>
-                {group.items.map(tool => (
-                  <div key={tool.name} style={{ background: C.cardAlt, borderRadius: 10, padding: 12 }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                      <span style={{ fontWeight: 700, fontSize: 13.5 }}>{tool.name}</span>
-                      <a href={tool.url} target="_blank" rel="noopener noreferrer" style={{ color: C.goldLight, display: "flex", alignItems: "center", gap: 4, fontSize: 12 }}>Ouvrir <ExternalLink size={12} /></a>
+      <div style={{ color: C.muted, fontSize: 12.5, marginBottom: 4 }}>Boîte à outils de l'agence — chaque outil et chaque catégorie peut être modifié ou supprimé.</div>
+      <EditableList items={groups} onChange={setGroups} itemLabel={g => g.cat}
+        fields={[{ key: "cat", label: "Nom de la catégorie" }]} newItem={{ cat: "", items: [] }} addLabel="Ajouter une catégorie"
+        render={(group, gi, actions) => {
+          const expanded = open === gi;
+          return (
+            <Card>
+              <GroupTitle title={group.cat} expanded={expanded} onToggle={() => setOpen(expanded ? -1 : gi)} actions={actions} />
+              {expanded && (
+                <EditableList style={{ marginTop: 12 }} items={group.items} itemLabel={t => t.name}
+                  onChange={items => setGroups(groups.map((g, i) => i === gi ? { ...g, items } : g))}
+                  fields={[{ key: "name", label: "Nom de l'outil" }, { key: "url", label: "Lien (https://…)" }, { key: "role", label: "À quoi il sert", type: "textarea" }, { key: "adv", label: "Avantage", type: "textarea" }]}
+                  newItem={{ name: "", url: "", role: "", adv: "" }} addLabel="Ajouter un outil"
+                  render={(tool, ti, acts) => (
+                    <div style={{ background: C.cardAlt, borderRadius: 10, padding: 12 }}>
+                      <Row actions={acts}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                          <span style={{ fontWeight: 700, fontSize: 13.5 }}>{tool.name}</span>
+                          {tool.url && <a href={tool.url} target="_blank" rel="noopener noreferrer" style={{ color: C.goldLight, display: "flex", alignItems: "center", gap: 4, fontSize: 12 }}>Ouvrir <ExternalLink size={12} /></a>}
+                        </div>
+                        <div style={{ fontSize: 12.5, color: C.text, marginTop: 6 }}>{tool.role}</div>
+                        {tool.adv && <div style={{ fontSize: 12, color: C.greenLight, marginTop: 4 }}>+ {tool.adv}</div>}
+                      </Row>
                     </div>
-                    <div style={{ fontSize: 12.5, color: C.text, marginTop: 6 }}>{tool.role}</div>
-                    <div style={{ fontSize: 12, color: C.greenLight, marginTop: 4 }}>+ {tool.adv}</div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </Card>
-        );
-      })}
+                  )} />
+              )}
+            </Card>
+          );
+        }} />
     </div>
   );
 }
 
 /* ---------------------------------- TAB: PLAN 30 JOURS ---------------------------------- */
-function TabPlan() {
+function TabPlan({ content, setContent }) {
+  const [weeks, setWeeks] = useContentKey(content, setContent, "plan", WEEKS);
   const [open, setOpen] = useState(0);
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-      {WEEKS.map((w, i) => {
-        const expanded = open === i;
-        return (
-          <Card key={i}>
-            <button onClick={() => setOpen(expanded ? -1 : i)} style={{ background: "none", border: "none", color: C.text, width: "100%", display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer", padding: 0 }}>
-              <span style={{ fontFamily: "Baloo 2, sans-serif", fontWeight: 700, fontSize: 14 }}>{w.title}</span>
-              {expanded ? <ChevronDown size={16} color={C.gold} /> : <ChevronRight size={16} color={C.gold} />}
-            </button>
-            {expanded && (
-              <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 10 }}>
-                {w.tasks.map((t, idx) => (
-                  <div key={idx} style={{ display: "flex", gap: 8, fontSize: 13 }}>
-                    <TrendingUp size={14} color={C.gold} style={{ flexShrink: 0, marginTop: 2 }} />
-                    <span>{t}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </Card>
-        );
-      })}
+      <EditableList items={weeks} onChange={setWeeks} itemLabel={w => w.title}
+        fields={[{ key: "title", label: "Titre de la semaine" }, { key: "tasks", label: "Tâches", type: "lines" }]}
+        newItem={{ title: "", tasks: [] }} addLabel="Ajouter une semaine"
+        render={(w, i, actions) => {
+          const expanded = open === i;
+          return (
+            <Card>
+              <GroupTitle title={w.title} expanded={expanded} onToggle={() => setOpen(expanded ? -1 : i)} actions={actions} />
+              {expanded && (
+                <EditableList style={{ marginTop: 10 }} items={w.tasks} primitive
+                  onChange={tasks => setWeeks(weeks.map((x, j) => j === i ? { ...x, tasks } : x))}
+                  fields={[{ key: "text", label: "Tâche", type: "textarea" }]} newItem="" addLabel="Ajouter une tâche"
+                  render={(t, idx, acts) => (
+                    <Row actions={acts}>
+                      <div style={{ display: "flex", gap: 8, fontSize: 13 }}>
+                        <TrendingUp size={14} color={C.gold} style={{ flexShrink: 0, marginTop: 2 }} />
+                        <span>{t}</span>
+                      </div>
+                    </Row>
+                  )} />
+              )}
+            </Card>
+          );
+        }} />
     </div>
   );
 }
 
-/* ---------------------------------- TAB: CIBLE & COPYWRITING ---------------------------------- */
-function TabCible() {
+/* ---------------------------------- TAB: CIBLE ---------------------------------- */
+function TabCible({ content, setContent }) {
+  const [personas, setPersonas] = useContentKey(content, setContent, "personas", PERSONAS);
+  const [groupes, setGroupes] = useContentKey(content, setContent, "groupesCibles", GROUPES_CIBLES);
+  const [methode, setMethode] = useContentKey(content, setContent, "methodeProspection", METHODE_PROSPECTION);
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <div>
-        <H2>Nos 3 clients cibles</H2>
-        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          {PERSONAS.map(p => (
-            <Card key={p.title}>
-              <div style={{ fontWeight: 700, fontSize: 14 }}>{p.title} <span style={{ color: C.muted, fontWeight: 500, fontSize: 12 }}>({p.age})</span></div>
-              <div style={{ fontSize: 12.5, color: C.text, marginTop: 6 }}>{p.desc}</div>
-              <div style={{ fontSize: 12, color: C.goldLight, marginTop: 6 }}>Comment lui parler : {p.tone}</div>
+        <H2>Nos clients cibles</H2>
+        <EditableList items={personas} onChange={setPersonas} itemLabel={p => p.title}
+          fields={[{ key: "title", label: "Profil" }, { key: "age", label: "Âge" }, { key: "desc", label: "Description", type: "textarea" }, { key: "tone", label: "Comment lui parler", type: "textarea" }]}
+          newItem={{ title: "", age: "", desc: "", tone: "" }} addLabel="Ajouter un profil"
+          render={(p, i, actions) => (
+            <Card>
+              <Row actions={actions}>
+                <div style={{ fontWeight: 700, fontSize: 14 }}>{p.title} {p.age && <span style={{ color: C.muted, fontWeight: 500, fontSize: 12 }}>({p.age})</span>}</div>
+                <div style={{ fontSize: 12.5, color: C.text, marginTop: 6 }}>{p.desc}</div>
+                {p.tone && <div style={{ fontSize: 12, color: C.goldLight, marginTop: 6 }}>Comment lui parler : {p.tone}</div>}
+              </Row>
             </Card>
-          ))}
-        </div>
+          )} />
       </div>
-
       <div>
         <H2>Groupes à cibler</H2>
         <Card>
-          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            {GROUPES_CIBLES.map((g, i) => <div key={i} style={{ fontSize: 13 }}>• {g}</div>)}
-          </div>
+          <EditableList items={groupes} onChange={setGroupes} primitive fields={[{ key: "text", label: "Groupe", type: "textarea" }]} newItem="" addLabel="Ajouter un groupe"
+            render={(g, i, acts) => <Row actions={acts}><div style={{ fontSize: 13 }}>• {g}</div></Row>} />
         </Card>
       </div>
-
       <div>
         <H2>Méthode de prospection (sans budget pub)</H2>
         <Card>
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {METHODE_PROSPECTION.map((m, i) => (
-              <div key={i} style={{ display: "flex", gap: 8, fontSize: 13 }}>
-                <span style={{ color: C.gold, fontWeight: 700 }}>{i + 1}.</span> {m}
-              </div>
-            ))}
-          </div>
+          <EditableList items={methode} onChange={setMethode} primitive fields={[{ key: "text", label: "Étape", type: "textarea" }]} newItem="" addLabel="Ajouter une étape"
+            render={(m, i, acts) => (
+              <Row actions={acts}><div style={{ display: "flex", gap: 8, fontSize: 13 }}><span style={{ color: C.gold, fontWeight: 700 }}>{i + 1}.</span> {m}</div></Row>
+            )} />
         </Card>
       </div>
-
       <Card style={{ textAlign: "center", background: C.cardAlt }}>
-        <div style={{ fontSize: 13 }}>Les 30 hooks et les 10 scripts complets sont dans l'onglet <span style={{ color: C.gold, fontWeight: 700 }}>Laboratoire Copywriting</span> 🔥</div>
+        <div style={{ fontSize: 13 }}>Les hooks et les scripts complets sont dans l'onglet <span style={{ color: C.gold, fontWeight: 700 }}>Laboratoire Copywriting</span> 🔥</div>
       </Card>
     </div>
   );
 }
+
+/* ---------------------------------- TAB: COPYWRITING ---------------------------------- */
+function TabCopywriting({ content, setContent }) {
+  const [hooks, setHooks] = useContentKey(content, setContent, "hooks", HOOKS);
+  const [scripts, setScripts] = useContentKey(content, setContent, "scripts", SCRIPTS);
+  const [openHook, setOpenHook] = useState(0);
+  const [openScript, setOpenScript] = useState(null);
+  const nbHooks = hooks.reduce((s, g) => s + (g.items || []).length, 0);
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <Card style={{ background: C.cardAlt }}>
+        <div style={{ fontSize: 13 }}>🔥 <strong>Stratégie :</strong> utilise un hook différent chaque jour pour tester ce qui accroche le mieux ton audience, puis reprends les scripts complets pour vendre en message privé.</div>
+      </Card>
+      <div>
+        <H2>{nbHooks} hooks & accroches</H2>
+        <EditableList items={hooks} onChange={setHooks} itemLabel={g => g.cat}
+          fields={[{ key: "cat", label: "Catégorie" }]} newItem={{ cat: "", items: [] }} addLabel="Ajouter une catégorie"
+          render={(group, gi, actions) => {
+            const expanded = openHook === gi;
+            return (
+              <Card>
+                <GroupTitle title={`${group.cat} (${(group.items || []).length})`} expanded={expanded} onToggle={() => setOpenHook(expanded ? -1 : gi)} actions={actions} />
+                {expanded && (
+                  <EditableList style={{ marginTop: 10 }} items={group.items} primitive
+                    onChange={items => setHooks(hooks.map((g, i) => i === gi ? { ...g, items } : g))}
+                    fields={[{ key: "text", label: "Hook", type: "textarea" }]} newItem="" addLabel="Ajouter un hook"
+                    render={(h, i, acts) => (
+                      <div style={{ display: "flex", gap: 8, fontSize: 12.5, background: C.cardAlt, borderRadius: 8, padding: 10 }}>
+                        <Flame size={13} color={C.rustLight} style={{ flexShrink: 0, marginTop: 2 }} />
+                        <Row actions={acts} style={{ flex: 1 }}><span>{h}</span></Row>
+                      </div>
+                    )} />
+                )}
+              </Card>
+            );
+          }} />
+      </div>
+      <div>
+        <H2>{scripts.length} scripts vidéo complets</H2>
+        <EditableList items={scripts} onChange={setScripts} itemLabel={s => s.title}
+          fields={[{ key: "title", label: "Titre" }, { key: "hook", label: "Crochet", type: "textarea" }, { key: "probleme", label: "Problème", type: "textarea" }, { key: "solution", label: "Solution", type: "textarea" }, { key: "cta", label: "Appel à l'action", type: "textarea" }]}
+          newItem={{ title: "", hook: "", probleme: "", solution: "", cta: "" }} addLabel="Ajouter un script"
+          render={(s, i, actions) => {
+            const expanded = openScript === i;
+            return (
+              <Card>
+                <GroupTitle title={s.title} expanded={expanded} onToggle={() => setOpenScript(expanded ? null : i)} actions={actions} />
+                {expanded && (
+                  <div style={{ marginTop: 10 }}>
+                    <ScriptLine label="Crochet" text={s.hook} />
+                    <ScriptLine label="Problème" text={s.probleme} />
+                    <ScriptLine label="Solution" text={s.solution} />
+                    <ScriptLine label="Appel à l'action" text={s.cta} color={C.rustLight} />
+                  </div>
+                )}
+              </Card>
+            );
+          }} />
+      </div>
+    </div>
+  );
+}
+
+/* ---------------------------------- TAB: ACADÉMIE GRATUITE ---------------------------------- */
+function TabAcademie({ content, setContent }) {
+  const [list, setList] = useContentKey(content, setContent, "academie", ACADEMIE);
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      <div style={{ color: C.muted, fontSize: 12.5 }}>Formations officielles et gratuites, spécifiques à notre domaine (marketing digital, publicité, e-commerce, IA).</div>
+      <EditableList items={list} onChange={setList} itemLabel={a => a.name}
+        fields={[{ key: "name", label: "Nom" }, { key: "url", label: "Lien (https://…)" }, { key: "desc", label: "Description", type: "textarea" }, { key: "certif", label: "Certificat", type: "textarea" }]}
+        newItem={{ name: "", url: "", desc: "", certif: "" }} addLabel="Ajouter une formation"
+        render={(a, i, actions) => (
+          <Card>
+            <Row actions={actions}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                <span style={{ fontWeight: 700, fontSize: 14 }}>{a.name}</span>
+                {a.url && <a href={a.url} target="_blank" rel="noopener noreferrer" style={{ color: C.goldLight, display: "flex", alignItems: "center", gap: 4, fontSize: 12 }}>Ouvrir <ExternalLink size={12} /></a>}
+              </div>
+              <div style={{ fontSize: 12.5, marginTop: 6 }}>{a.desc}</div>
+              {a.certif && <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: C.greenLight, marginTop: 6 }}><Award size={13} /> {a.certif}</div>}
+            </Row>
+          </Card>
+        )} />
+    </div>
+  );
+}
+
+/* ---------------------------------- TAB: TARIFS ---------------------------------- */
+function TabTarifs({ pricing, setPricing }) {
+  const priceFields = [{ key: "name", label: "Nom de l'offre" }, { key: "online", label: "Prix en ligne (FCFA)", type: "number" }, { key: "presentiel", label: "Prix présentiel (FCFA, vide si non proposé)", type: "number" }, { key: "note", label: "Note (ex : Sur devis)" }];
+  const priceRow = (r, i, acts) => (
+    <Row actions={acts} style={{ padding: "6px 0", borderBottom: `1px solid ${C.border}` }}>
+      <div style={{ fontSize: 13, fontWeight: 600 }}>{r.name}</div>
+      <div style={{ fontSize: 12, color: C.muted }}>
+        En ligne : <b style={{ color: C.goldLight }}>{r.online ? fcfa(r.online) : (r.note || "—")}</b>
+        {r.presentiel != null && r.presentiel !== "" && <> · Présentiel : <b style={{ color: C.goldLight }}>{fcfa(r.presentiel)}</b></>}
+      </div>
+    </Row>
+  );
+  const setList = (key) => (rows) => setPricing({ ...pricing, [key]: rows });
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <div>
+        <H2>Formations & Coaching</H2>
+        <Card><EditableList items={pricing.formations} onChange={setList("formations")} itemLabel={r => r.name} fields={priceFields} newItem={{ name: "", online: "", presentiel: "", note: "" }} addLabel="Ajouter une formation" render={priceRow} /></Card>
+      </div>
+      <div>
+        <H2>Prestations techniques & créatives</H2>
+        <Card>
+          <EditableList items={pricing.prestations} onChange={setList("prestations")} itemLabel={r => r.name}
+            fields={[{ key: "name", label: "Prestation" }, { key: "price", label: "Prix (texte libre)" }]} newItem={{ name: "", price: "" }} addLabel="Ajouter une prestation"
+            render={(p, i, acts) => (
+              <Row actions={acts} style={{ padding: "6px 0", borderBottom: `1px solid ${C.border}` }}>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, gap: 8 }}><span>{p.name}</span><span style={{ color: C.goldLight, fontWeight: 700 }}>{p.price}</span></div>
+              </Row>
+            )} />
+        </Card>
+      </div>
+      <div>
+        <H2>Packs stratégiques</H2>
+        <Card><EditableList items={pricing.packs} onChange={setList("packs")} itemLabel={r => r.name} fields={priceFields} newItem={{ name: "", online: "", presentiel: "", note: "" }} addLabel="Ajouter un pack" render={priceRow} /></Card>
+      </div>
+    </div>
+  );
+}
+
 function ScriptLine({ label, text, color }) {
   return (
     <div style={{ marginBottom: 6 }}>
@@ -2960,7 +3861,15 @@ function TabTresorerie({ prospects, setProspects, expenses, setExpenses, totalCA
     notifyTeam("Nouvelle dépense 💸", `${form.label} — ${fcfa(form.montant)}`, "tresorerie");
     setForm({ label: "", categorie: DEPENSES_CATEGORIES[0], montant: "", addedBy: team[0]?.id || "" });
   }
-  function removeExpense(id) { setExpenses(expenses.filter(e => e.id !== id)); }
+  const [editingExp, setEditingExp] = useState(null);
+  function removeExpense(e) {
+    if (!confirmDelete(`la dépense « ${e.label} »`)) return;
+    setExpenses(expenses.filter(x => x.id !== e.id));
+  }
+  function saveExpense(id, f) {
+    setExpenses(expenses.map(e => e.id === id ? { ...e, ...f } : e));
+    setEditingExp(null);
+  }
   function updateSuivi(id, suivi) { setProspects(prospects.map(p => p.id === id ? { ...p, suivi } : p)); }
 
   return (
@@ -3023,9 +3932,20 @@ function TabTresorerie({ prospects, setProspects, expenses, setExpenses, totalCA
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                   <div style={{ fontWeight: 700, color: C.rustLight, fontSize: 13 }}>-{fcfa(e.montant)}</div>
-                  {catherineUnlocked && <button onClick={() => removeExpense(e.id)} style={{ background: "none", border: "none", color: C.rustLight, cursor: "pointer" }}><Trash2 size={15} /></button>}
+                  {catherineUnlocked && <EditDeleteButtons editing={editingExp === e.id} onEdit={() => setEditingExp(editingExp === e.id ? null : e.id)} onDelete={() => removeExpense(e)} />}
                 </div>
               </div>
+              {editingExp === e.id && (
+                <EditFields value={{ label: e.label || "", categorie: e.categorie || DEPENSES_CATEGORIES[0], montant: e.montant ?? "", date: e.date || "", addedBy: e.addedBy || "" }}
+                  fields={[
+                    { key: "label", label: "Description" },
+                    { key: "categorie", label: "Catégorie", type: "select", options: DEPENSES_CATEGORIES },
+                    { key: "montant", label: "Montant (FCFA)", type: "number" },
+                    { key: "date", label: "Date", type: "date" },
+                    { key: "addedBy", label: "Ajoutée par", type: "select", options: team.map(m => ({ value: m.id, label: m.name })) },
+                  ]}
+                  onSave={(f) => saveExpense(e.id, f)} onCancel={() => setEditingExp(null)} />
+              )}
             </Card>
           ))}
         </div>
@@ -3071,7 +3991,15 @@ function TabDettes({ dettes, setDettes, prospects }) {
     setForm({ clientNom: "", whatsapp: "", service: "", montantDu: "", dateEcheance: today, statut: "En attente", linkedId: "" });
   }
   function markPaid(id) { setDettes(dettes.map(d => d.id === id ? { ...d, statut: "Payée" } : d)); }
-  function removeDette(id) { setDettes(dettes.filter(d => d.id !== id)); }
+  const [editingDette, setEditingDette] = useState(null);
+  function removeDette(d) {
+    if (!confirmDelete(`la dette de « ${d.clientNom} »`)) return;
+    setDettes(dettes.filter(x => x.id !== d.id));
+  }
+  function saveDette(id, f) {
+    setDettes(dettes.map(d => d.id === id ? { ...d, ...f } : d));
+    setEditingDette(null);
+  }
 
   function urgency(d) {
     if (d.statut === "Payée") return "payee";
@@ -3129,8 +4057,20 @@ function TabDettes({ dettes, setDettes, prospects }) {
                   <div style={{ fontSize: 12, color: C.muted }}>{d.service}</div>
                   <div style={{ fontSize: 12, color: C.muted }}>Échéance : {d.dateEcheance}</div>
                 </div>
-                <button onClick={() => removeDette(d.id)} style={{ background: "none", border: "none", color: C.rustLight, cursor: "pointer" }}><Trash2 size={16} /></button>
+                <EditDeleteButtons editing={editingDette === d.id} onEdit={() => setEditingDette(editingDette === d.id ? null : d.id)} onDelete={() => removeDette(d)} />
               </div>
+              {editingDette === d.id && (
+                <EditFields value={{ clientNom: d.clientNom || "", whatsapp: d.whatsapp || "", service: d.service || "", montantDu: d.montantDu ?? "", dateEcheance: d.dateEcheance || "", statut: d.statut || "En attente" }}
+                  fields={[
+                    { key: "clientNom", label: "Nom du client" },
+                    { key: "whatsapp", label: "WhatsApp" },
+                    { key: "service", label: "Service concerné" },
+                    { key: "montantDu", label: "Montant dû (FCFA)", type: "number" },
+                    { key: "dateEcheance", label: "Échéance", type: "date" },
+                    { key: "statut", label: "Statut", type: "select", options: ["En attente", "Payée"] },
+                  ]}
+                  onSave={(f) => saveDette(d.id, f)} onCancel={() => setEditingDette(null)} />
+              )}
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 8 }}>
                 <span style={{ fontSize: 11, fontWeight: 700, color, background: "rgba(255,255,255,0.06)", padding: "3px 8px", borderRadius: 6 }}>{label}</span>
                 <div style={{ fontWeight: 700, color: C.goldLight, fontSize: 13 }}>{fcfa(d.montantDu)}</div>
@@ -3156,72 +4096,9 @@ function TabDettes({ dettes, setDettes, prospects }) {
     </div>
   );
 }
-function TabCopywriting() {
-  const [openHook, setOpenHook] = useState(HOOKS[0].cat);
-  const [openScript, setOpenScript] = useState(null);
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      <Card style={{ background: C.cardAlt }}>
-        <div style={{ fontSize: 13 }}>🔥 <strong>Stratégie :</strong> utilise un hook différent chaque jour pour tester ce qui accroche le mieux ton audience, puis reprends les scripts complets pour vendre en message privé.</div>
-      </Card>
-
-      <div>
-        <H2>30 hooks & accroches</H2>
-        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          {HOOKS.map(group => {
-            const expanded = openHook === group.cat;
-            return (
-              <Card key={group.cat}>
-                <button onClick={() => setOpenHook(expanded ? null : group.cat)} style={{ background: "none", border: "none", color: C.text, width: "100%", display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer", padding: 0 }}>
-                  <span style={{ fontFamily: "Baloo 2, sans-serif", fontWeight: 700, fontSize: 14 }}>{group.cat} ({group.items.length})</span>
-                  {expanded ? <ChevronDown size={16} color={C.gold} /> : <ChevronRight size={16} color={C.gold} />}
-                </button>
-                {expanded && (
-                  <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 10 }}>
-                    {group.items.map((h, i) => (
-                      <div key={i} style={{ display: "flex", gap: 8, fontSize: 12.5, background: C.cardAlt, borderRadius: 8, padding: 10 }}>
-                        <Flame size={13} color={C.rustLight} style={{ flexShrink: 0, marginTop: 2 }} />
-                        <span>{h}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </Card>
-            );
-          })}
-        </div>
-      </div>
-
-      <div>
-        <H2>10 scripts vidéo complets</H2>
-        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          {SCRIPTS.map((s, i) => {
-            const expanded = openScript === i;
-            return (
-              <Card key={s.title}>
-                <button onClick={() => setOpenScript(expanded ? null : i)} style={{ background: "none", border: "none", color: C.text, width: "100%", display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer", padding: 0 }}>
-                  <span style={{ fontFamily: "Baloo 2, sans-serif", fontWeight: 700, fontSize: 13.5 }}>{s.title}</span>
-                  {expanded ? <ChevronDown size={16} color={C.gold} /> : <ChevronRight size={16} color={C.gold} />}
-                </button>
-                {expanded && (
-                  <div style={{ marginTop: 10 }}>
-                    <ScriptLine label="Crochet" text={s.hook} />
-                    <ScriptLine label="Problème" text={s.probleme} />
-                    <ScriptLine label="Solution" text={s.solution} />
-                    <ScriptLine label="Appel à l'action" text={s.cta} color={C.rustLight} />
-                  </div>
-                )}
-              </Card>
-            );
-          })}
-        </div>
-      </div>
-    </div>
-  );
-}
-
 /* ---------------------------------- TAB: PROSPECTION RÉSEAUX ---------------------------------- */
-function TabProspection({ prospection, setProspection, prospects, setProspects, team, pricing, allServicesFlat }) {
+function TabProspection({ prospection, setProspection, prospects, setProspects, team, pricing, allServicesFlat, content, setContent }) {
+  const [dmScripts, setDmScripts] = useContentKey(content, setContent, "dmScripts", DM_SCRIPTS);
   const [service, setService] = useState(allServicesFlat[0]);
   const [copiedStage, setCopiedStage] = useState(null);
   const [form, setForm] = useState({ nom: "", whatsapp: "", source: "", commentaire: "", interet: "Chaud", statut: "À répondu", scriptUtilise: DM_SCRIPTS[0].stage, note: "" });
@@ -3245,7 +4122,16 @@ function TabProspection({ prospection, setProspection, prospects, setProspects, 
     setForm({ nom: "", whatsapp: "", source: "", commentaire: "", interet: "Chaud", statut: "À répondu", scriptUtilise: DM_SCRIPTS[0].stage, note: "" });
   }
   function updateStatut(id, statut) { setProspection(prospection.map(p => p.id === id ? { ...p, statut } : p)); }
-  function removeEntry(id) { setProspection(prospection.filter(p => p.id !== id)); }
+  const [editingEntry, setEditingEntry] = useState(null);
+  function removeEntry(id) { setProspection(prev => prev.filter(p => p.id !== id)); }
+  function deleteEntry(p) {
+    if (!confirmDelete(`le contact « ${p.nom} »`)) return;
+    removeEntry(p.id);
+  }
+  function saveEntry(id, f) {
+    setProspection(prospection.map(p => p.id === id ? { ...p, ...f } : p));
+    setEditingEntry(null);
+  }
   function convertToClient(p) {
     setProspects([...prospects, {
       id: Date.now(), nom: p.nom, prenom: "", whatsapp: p.whatsapp, email: "", adresse: "", quartier: "",
@@ -3272,19 +4158,22 @@ function TabProspection({ prospection, setProspection, prospects, setProspects, 
 
       <div>
         <H2>Scripts DM — copier-coller</H2>
-        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          {DM_SCRIPTS.map(s => (
-            <Card key={s.stage}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-                <span style={{ fontFamily: "Baloo 2, sans-serif", fontWeight: 700, fontSize: 13.5, color: C.gold }}>{s.stage}</span>
+        <div style={{ fontSize: 11.5, color: C.muted, marginBottom: 6 }}>Dans les textes, [Service] et [Prix] sont remplacés automatiquement.</div>
+        <EditableList items={dmScripts} onChange={setDmScripts} itemLabel={s => s.stage}
+          fields={[{ key: "stage", label: "Étape" }, { key: "text", label: "Message", type: "textarea" }]}
+          newItem={{ stage: "", text: "" }} addLabel="Ajouter un script DM"
+          render={(s, i, actions) => (
+            <Card>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8, gap: 6 }}>
+                <span style={{ fontFamily: "Baloo 2, sans-serif", fontWeight: 700, fontSize: 13.5, color: C.gold, flex: 1 }}>{s.stage}</span>
                 <button onClick={() => copyScript(s.stage, s.text)} style={{ ...iconBtn, display: "flex", alignItems: "center", gap: 5 }}>
                   <Copy size={12} /> {copiedStage === s.stage ? "Copié !" : "Copier"}
                 </button>
+                {actions}
               </div>
               <div style={{ fontSize: 12.5, whiteSpace: "pre-line", color: C.text, background: C.cardAlt, borderRadius: 8, padding: 10 }}>{renderScript(s.text)}</div>
             </Card>
-          ))}
-        </div>
+          )} />
       </div>
 
       <div>
@@ -3301,7 +4190,7 @@ function TabProspection({ prospection, setProspection, prospects, setProspects, 
                 {INTERET_NIVEAUX.map(i => <option key={i} value={i}>{i}</option>)}
               </select>
               <select value={form.scriptUtilise} onChange={e => setForm({ ...form, scriptUtilise: e.target.value })} style={{ ...inputStyle, flex: 1 }}>
-                {DM_SCRIPTS.map(s => <option key={s.stage} value={s.stage}>{s.stage}</option>)}
+                {dmScripts.map(s => <option key={s.stage} value={s.stage}>{s.stage}</option>)}
               </select>
             </div>
             <button onClick={addEntry} style={btnGold}><Plus size={14} /> Ajouter au suivi</button>
@@ -3318,8 +4207,20 @@ function TabProspection({ prospection, setProspection, prospects, setProspects, 
                   <div style={{ fontSize: 12, color: C.muted }}>{p.whatsapp} · {p.source}</div>
                   <div style={{ fontSize: 11.5, color: C.muted, marginTop: 2 }}>"{p.commentaire}"</div>
                 </div>
-                <button onClick={() => removeEntry(p.id)} style={{ background: "none", border: "none", color: C.rustLight, cursor: "pointer" }}><Trash2 size={16} /></button>
+                <EditDeleteButtons editing={editingEntry === p.id} onEdit={() => setEditingEntry(editingEntry === p.id ? null : p.id)} onDelete={() => deleteEntry(p)} />
               </div>
+              {editingEntry === p.id && (
+                <EditFields value={{ nom: p.nom || "", whatsapp: p.whatsapp || "", source: p.source || "", commentaire: p.commentaire || "", interet: p.interet || "Chaud", scriptUtilise: p.scriptUtilise || dmScripts[0]?.stage || "" }}
+                  fields={[
+                    { key: "nom", label: "Nom & Prénom" },
+                    { key: "whatsapp", label: "WhatsApp" },
+                    { key: "source", label: "Source" },
+                    { key: "commentaire", label: "Commentaire vu", type: "textarea" },
+                    { key: "interet", label: "Intérêt", type: "select", options: INTERET_NIVEAUX },
+                    { key: "scriptUtilise", label: "Script utilisé", type: "select", options: dmScripts.map(s => s.stage) },
+                  ]}
+                  onSave={(f) => saveEntry(p.id, f)} onCancel={() => setEditingEntry(null)} />
+              )}
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 8, flexWrap: "wrap", gap: 6 }}>
                 <select value={p.statut} onChange={e => updateStatut(p.id, e.target.value)} style={{ ...inputStyle, padding: "4px 8px", fontSize: 12, width: "auto" }}>
                   {PROSPECTION_STATUTS.map(s => <option key={s} value={s}>{s}</option>)}
@@ -3339,9 +4240,17 @@ function TabProspection({ prospection, setProspection, prospects, setProspects, 
 }
 
 /* ---------------------------------- TAB: PROSPECTION TERRAIN ---------------------------------- */
-function TabProspectionTerrain({ agency }) {
+function TabProspectionTerrain({ agency, content, setContent }) {
+  const [methode, setMethode] = useContentKey(content, setContent, "methodeTerrain", METHODE_TERRAIN);
+  const [guide, setGuide] = useContentKey(content, setContent, "terrainGuide", DEFAULT_TERRAIN_GUIDE);
   const [openService, setOpenService] = useState(null);
   const [openMethode, setOpenMethode] = useState(true);
+  const serviceFields = [
+    { key: "name", label: "Service" }, { key: "cible", label: "Cible idéale", type: "textarea" },
+    { key: "portfolio", label: "Portefeuille à montrer", type: "textarea" }, { key: "accroche", label: "Accroche", type: "textarea" },
+    { key: "objection", label: "Objection fréquente", type: "textarea" }, { key: "reponse", label: "Réponse", type: "textarea" },
+    { key: "script", label: "Script complet", type: "lines" },
+  ];
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
@@ -3349,119 +4258,75 @@ function TabProspectionTerrain({ agency }) {
         <div style={{ fontSize: 13 }}>🚪 Guide complet pour approcher, convaincre et convertir des entreprises physiques (boutiques, restaurants, PME…) en face à face. Une fiche par service : qui viser, quoi montrer, quoi dire.</div>
       </Card>
 
-      <button onClick={() => generateProspectionPDF(agency)}
-        style={{ ...btnGold, justifyContent: "center" }}>
+      <button onClick={() => generateProspectionPDF(agency, methode, guide)} style={{ ...btnGold, justifyContent: "center" }}>
         <FileText size={14} /> Télécharger le guide complet en PDF
       </button>
 
       <div>
         <div onClick={() => setOpenMethode(!openMethode)} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer" }}>
-          <H2>Méthode universelle en 7 étapes</H2>
+          <H2>Méthode universelle en {methode.length} étapes</H2>
           {openMethode ? <ChevronDown size={18} color={C.muted} /> : <ChevronRight size={18} color={C.muted} />}
         </div>
         {openMethode && (
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {METHODE_TERRAIN.map((m, i) => (
-              <Card key={i}>
-                <div style={{ fontWeight: 700, fontSize: 13.5, color: C.goldLight, marginBottom: 6 }}>{i + 1}. {m.titre}</div>
-                <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                  {m.points.map((p, j) => <div key={j} style={{ fontSize: 12.5, color: C.text }}>• {p}</div>)}
-                </div>
+          <EditableList items={methode} onChange={setMethode} itemLabel={m => m.titre}
+            fields={[{ key: "titre", label: "Titre de l'étape" }, { key: "points", label: "Points", type: "lines" }]}
+            newItem={{ titre: "", points: [] }} addLabel="Ajouter une étape"
+            render={(m, i, actions) => (
+              <Card>
+                <Row actions={actions}>
+                  <div style={{ fontWeight: 700, fontSize: 13.5, color: C.goldLight, marginBottom: 6 }}>{i + 1}. {m.titre}</div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                    {(m.points || []).map((p, j) => <div key={j} style={{ fontSize: 12.5, color: C.text }}>• {p}</div>)}
+                  </div>
+                </Row>
               </Card>
-            ))}
-          </div>
+            )} />
         )}
       </div>
 
-      {Object.entries(PROSPECTION_GUIDE).map(([categorie, services]) => (
-        <div key={categorie}>
-          <H2>{categorie}</H2>
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {services.map(s => {
-              const open = openService === s.name;
-              return (
-                <Card key={s.name}>
-                  <div onClick={() => setOpenService(open ? null : s.name)} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer" }}>
-                    <div style={{ fontWeight: 700, fontSize: 13.5 }}>{s.name}</div>
-                    {open ? <ChevronDown size={16} color={C.muted} /> : <ChevronRight size={16} color={C.muted} />}
-                  </div>
-                  {open && (
-                    <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 10, borderTop: `1px solid ${C.border}`, paddingTop: 10 }}>
-                      <div><Eyebrow>Cible idéale</Eyebrow><div style={{ fontSize: 12.5 }}>{s.cible}</div></div>
-                      <div><Eyebrow>Portefeuille à montrer</Eyebrow><div style={{ fontSize: 12.5 }}>{s.portfolio}</div></div>
-                      <div><Eyebrow>Accroche</Eyebrow><div style={{ fontSize: 12.5, fontStyle: "italic", color: C.goldLight }}>"{s.accroche}"</div></div>
-                      <div><Eyebrow>Objection fréquente</Eyebrow><div style={{ fontSize: 12.5, color: C.rustLight }}>{s.objection}</div></div>
-                      <div><Eyebrow>Réponse</Eyebrow><div style={{ fontSize: 12.5 }}>{s.reponse}</div></div>
-                      {s.script && (
-                        <div>
-                          <Eyebrow>Script complet — du début à la fin</Eyebrow>
-                          <div style={{ display: "flex", flexDirection: "column", gap: 5, marginTop: 4 }}>
-                            {s.script.map((step, i) => (
-                              <div key={i} style={{ fontSize: 12, display: "flex", gap: 6 }}>
-                                <span style={{ color: C.gold, fontWeight: 700 }}>{i + 1}.</span> {step}
-                              </div>
-                            ))}
+      <EditableList items={guide} onChange={setGuide} itemLabel={g => g.categorie}
+        fields={[{ key: "categorie", label: "Nom de la catégorie" }]} newItem={{ categorie: "", services: [] }} addLabel="Ajouter une catégorie de services"
+        render={(g, gi, actions) => (
+          <div>
+            <Row actions={actions}><H2>{g.categorie}</H2></Row>
+            <EditableList items={g.services} itemLabel={s => s.name}
+              onChange={services => setGuide(guide.map((x, i) => i === gi ? { ...x, services } : x))}
+              fields={serviceFields} newItem={{ name: "", cible: "", portfolio: "", accroche: "", objection: "", reponse: "", script: [] }} addLabel="Ajouter un service"
+              render={(s, si, acts) => {
+                const key = `${gi}-${si}`;
+                const open = openService === key;
+                return (
+                  <Card>
+                    <GroupTitle title={s.name} expanded={open} onToggle={() => setOpenService(open ? null : key)} actions={acts} />
+                    {open && (
+                      <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 10, borderTop: `1px solid ${C.border}`, paddingTop: 10 }}>
+                        <div><Eyebrow>Cible idéale</Eyebrow><div style={{ fontSize: 12.5 }}>{s.cible}</div></div>
+                        <div><Eyebrow>Portefeuille à montrer</Eyebrow><div style={{ fontSize: 12.5 }}>{s.portfolio}</div></div>
+                        <div><Eyebrow>Accroche</Eyebrow><div style={{ fontSize: 12.5, fontStyle: "italic", color: C.goldLight }}>"{s.accroche}"</div></div>
+                        <div><Eyebrow>Objection fréquente</Eyebrow><div style={{ fontSize: 12.5, color: C.rustLight }}>{s.objection}</div></div>
+                        <div><Eyebrow>Réponse</Eyebrow><div style={{ fontSize: 12.5 }}>{s.reponse}</div></div>
+                        {(s.script || []).length > 0 && (
+                          <div>
+                            <Eyebrow>Script complet — du début à la fin</Eyebrow>
+                            <div style={{ display: "flex", flexDirection: "column", gap: 5, marginTop: 4 }}>
+                              {s.script.map((step, i) => (
+                                <div key={i} style={{ fontSize: 12, display: "flex", gap: 6 }}><span style={{ color: C.gold, fontWeight: 700 }}>{i + 1}.</span> {step}</div>
+                              ))}
+                            </div>
                           </div>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </Card>
-              );
-            })}
+                        )}
+                      </div>
+                    )}
+                  </Card>
+                );
+              }} />
           </div>
-        </div>
-      ))}
+        )} />
     </div>
   );
 }
 
-/* ---------------------------------- TAB: ACADÉMIE GRATUITE ---------------------------------- */
-function TabAcademie() {
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-      <div style={{ color: C.muted, fontSize: 12.5 }}>Formations officielles et gratuites, spécifiques à notre domaine (marketing digital, publicité, e-commerce, IA).</div>
-      {ACADEMIE.map(a => (
-        <Card key={a.name}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <span style={{ fontWeight: 700, fontSize: 14 }}>{a.name}</span>
-            <a href={a.url} target="_blank" rel="noopener noreferrer" style={{ color: C.goldLight, display: "flex", alignItems: "center", gap: 4, fontSize: 12 }}>Ouvrir <ExternalLink size={12} /></a>
-          </div>
-          <div style={{ fontSize: 12.5, marginTop: 6 }}>{a.desc}</div>
-          <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: C.greenLight, marginTop: 6 }}>
-            <Award size={13} /> {a.certif}
-          </div>
-        </Card>
-      ))}
-    </div>
-  );
-}
 
-/* ---------------------------------- TAB: TARIFS ---------------------------------- */
-function TabTarifs({ pricing }) {
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      <div>
-        <H2>Formations & Coaching</H2>
-        <Card><PriceTable rows={pricing.formations} /></Card>
-      </div>
-      <div>
-        <H2>Prestations techniques & créatives</H2>
-        <Card>
-          {pricing.prestations.map(p => (
-            <div key={p.name} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: `1px solid ${C.border}`, fontSize: 13 }}>
-              <span>{p.name}</span><span style={{ color: C.goldLight, fontWeight: 700 }}>{p.price}</span>
-            </div>
-          ))}
-        </Card>
-      </div>
-      <div>
-        <H2>Packs stratégiques</H2>
-        <Card><PriceTable rows={pricing.packs} /></Card>
-      </div>
-    </div>
-  );
-}
 function PriceTable({ rows }) {
   return (
     <div style={{ display: "flex", flexDirection: "column" }}>
@@ -3519,6 +4384,8 @@ function PricingListEditor({ title, rows, onChange, priceMode }) {
                 <input value={r.note || ""} onChange={e => updateRow(idx, { note: e.target.value })} style={{ ...inputStyle, flex: "1 1 100px" }} placeholder="Note (ex: Sur devis)" />
               </>
             )}
+            <button aria-label="Supprimer" onClick={() => { if (confirmDelete(`l'offre « ${r.name} »`)) onChange(rows.filter((_, i) => i !== idx)); }}
+              style={{ background: "none", border: "none", color: C.rustLight, cursor: "pointer", padding: 4 }}><Trash2 size={15} /></button>
           </div>
         ))}
         {rows.length === 0 && <div style={{ color: C.muted, fontSize: 12, textAlign: "center", padding: 10 }}>Aucune offre pour l'instant.</div>}
@@ -3547,6 +4414,16 @@ function TabLiens({ links, setLinks, team }) {
     setLinks([...links, { ...form, id: Date.now() }]);
     setForm({ label: "", url: "", addedBy: team[0]?.id || "" });
   }
+  const [editingLink, setEditingLink] = useState(null);
+  function removeLink(l) {
+    if (!confirmDelete(`le lien « ${l.label} »`)) return;
+    setLinks(links.filter(x => x.id !== l.id));
+  }
+  function saveLink(id, f) {
+    if (!f.label.trim() || !f.url.trim()) return;
+    setLinks(links.map(l => l.id === id ? { ...l, ...f } : l));
+    setEditingLink(null);
+  }
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
@@ -3573,8 +4450,18 @@ function TabLiens({ links, setLinks, team }) {
               </div>
               <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
                 <a href={l.url} target="_blank" rel="noopener noreferrer" style={{ color: C.goldLight }}><ExternalLink size={16} /></a>
+                <EditDeleteButtons editing={editingLink === l.id} onEdit={() => setEditingLink(editingLink === l.id ? null : l.id)} onDelete={() => removeLink(l)} />
               </div>
             </div>
+            {editingLink === l.id && (
+              <EditFields value={{ label: l.label || "", url: l.url || "", addedBy: l.addedBy || "" }}
+                fields={[
+                  { key: "label", label: "Nom du lien" },
+                  { key: "url", label: "Adresse (https://…)" },
+                  { key: "addedBy", label: "Ajouté par", type: "select", options: team.map(m => ({ value: m.id, label: m.name })) },
+                ]}
+                onSave={(f) => saveLink(l.id, f)} onCancel={() => setEditingLink(null)} />
+            )}
           </Card>
         ))}
       </div>
@@ -3788,8 +4675,7 @@ function TabFormation({ team, codes, guides, formationLiens }) {
   const labels = Object.fromEntries(team.map(m => [m.id, m.name]));
 
   function tryUnlock() {
-    // Comparaison stricte : le code de secours ne donne PAS acces aux guides des
-    // autres membres. Seul le code Administration ouvre tout (vue CEO).
+    // Le code Administration (ou le code maître) ouvre tout (vue CEO).
     if (codeMatchesStrict(code, codes.admin)) {
       setUnlockedId("admin"); setError(false); setCode(""); setViewing(team[0]?.id || null);
       return;
@@ -3839,7 +4725,7 @@ function TabFormation({ team, codes, guides, formationLiens }) {
             <button key={gid} onClick={() => setViewing(gid)} style={{
               padding: "6px 12px", borderRadius: 999, fontSize: 12, fontWeight: 700, cursor: "pointer", flexShrink: 0,
               border: `1px solid ${activeId === gid ? C.gold : C.border}`,
-              background: activeId === gid ? "rgba(193,95,60,0.16)" : "transparent",
+              background: activeId === gid ? "rgba(243,146,0,0.16)" : "transparent",
               color: activeId === gid ? C.goldLight : C.muted,
             }}>{labels[gid]}</button>
           ))}
@@ -3853,7 +4739,7 @@ function TabFormation({ team, codes, guides, formationLiens }) {
           <button key={s.id} onClick={() => setSection(s.id)} style={{
             flex: 1, padding: "8px 10px", borderRadius: 10, fontSize: 12.5, fontWeight: 700, cursor: "pointer",
             border: `1px solid ${section === s.id ? C.gold : C.border}`,
-            background: section === s.id ? "rgba(193,95,60,0.16)" : "transparent",
+            background: section === s.id ? "rgba(243,146,0,0.16)" : "transparent",
             color: section === s.id ? C.goldLight : C.muted,
           }}>{s.label}</button>
         ))}
@@ -3936,7 +4822,7 @@ function TabCaissePerso({ caisse, setCaisse }) {
   }
   function startEditOp(o) { setEditOp(o.id); setOType(o.type); setOMontant(String(o.montant)); setOLabel(o.label); setODate(o.date); setOTime(o.time); }
   function cancelEditOp() { setEditOp(null); setOType("out"); setOMontant(""); setOLabel(""); prefillOp(); }
-  function delOp(id) { setOpsList(ops.filter(o => o.id !== id)); if (editOp === id) cancelEditOp(); }
+  function delOp(id) { if (!confirmDelete("cette opération")) return; setOpsList(ops.filter(o => o.id !== id)); if (editOp === id) cancelEditOp(); }
 
   function saveDebt() {
     const m = parseInt(dMontant, 10);
@@ -3955,7 +4841,7 @@ function TabCaissePerso({ caisse, setCaisse }) {
   function startEditDebt(d) { setEditDebt(d.id); setDDir(d.dir); setDMontant(String(d.montant)); setDPrenom(d.prenom || ""); setDNom(d.nom || ""); setDNumero(d.numero || ""); setDMotif(d.motif || ""); setDDate(d.date); setDTime(d.time); }
   function cancelEditDebt() { setEditDebt(null); clearDebtForm(); }
   function toggleSettle(id) { setDebtsList(debts.map(d => d.id === id ? { ...d, settled: !d.settled, settledDate: !d.settled ? iso(new Date()) : null } : d)); }
-  function delDebt(id) { setDebtsList(debts.filter(d => d.id !== id)); if (editDebt === id) cancelEditDebt(); }
+  function delDebt(id) { if (!confirmDelete("cette dette")) return; setDebtsList(debts.filter(d => d.id !== id)); if (editDebt === id) cancelEditDebt(); }
   function shiftMonth(delta) { const p = viewMonth.split("-"); setViewMonth(iso(new Date(p[0], p[1] - 1 + delta, 1)).slice(0, 7)); }
 
   let tin = 0, tout = 0;
@@ -3978,14 +4864,14 @@ function TabCaissePerso({ caisse, setCaisse }) {
   function genPDF() {
     const doc = new jsPDF({ unit: "mm", format: "a4" });
     const list = monthOps.slice().sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time));
-    doc.setFontSize(16); doc.setTextColor(193, 95, 60); doc.text("KBS — Caisse Perso", 14, 18);
+    doc.setFontSize(16); doc.setTextColor(1, 27, 69); doc.text("KBS — Caisse Perso", 14, 18);
     doc.setFontSize(11); doc.setTextColor(40, 40, 40); doc.text("Releve : " + monthLabel(viewMonth), 14, 26);
     autoTable(doc, {
       startY: 32,
       head: [["Date", "Libelle", "Type", "Montant (FCFA)"]],
       body: list.map(o => [o.date.split("-").reverse().join("/"), o.label, o.type === "in" ? "Entree" : "Depense", (o.type === "in" ? "+" : "-") + fmt(o.montant)]),
       styles: { fontSize: 9 },
-      headStyles: { fillColor: [193, 95, 60] },
+      headStyles: { fillColor: [1, 27, 69] },
     });
     let y = (doc.lastAutoTable ? doc.lastAutoTable.finalY : 40) + 10;
     doc.setFontSize(11); doc.setTextColor(30, 120, 70); doc.text("Total entrees : +" + fmt(mIn) + " FCFA", 14, y);
@@ -4142,7 +5028,17 @@ function TabCaissePerso({ caisse, setCaisse }) {
 /* ---------------------------------- TAB: ARCHIVES ---------------------------------- */
 // Historique fige, mois par mois. Chaque mois est archive automatiquement quand un
 // nouveau mois commence (voir buildSnapshot dans App). Consultation en lecture seule.
-function TabArchives({ archives, period, team }) {
+function TabArchives({ archives, period, team, codes, onDelete, onUpdate, onCreate }) {
+  const [editUnlocked, setEditUnlocked] = useState(false);
+  const [newMonth, setNewMonth] = useState(() => { const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - 1); return d.toISOString().slice(0, 7); });
+  const secTitle = { fontSize: 12, fontWeight: 700, color: C.gold, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 };
+  const rowStyle = { fontSize: 12.5, background: C.cardAlt, borderRadius: 8, padding: "6px 10px" };
+  function askDelete(a, label) {
+    const c = window.prompt(`Supprimer définitivement l'archive « ${label} » ?\nEntre le code Administration pour confirmer :`);
+    if (c == null) return;
+    if (!codeMatchesStrict(c, codes.admin)) { window.alert("Code incorrect — rien n'a été supprimé."); return; }
+    onDelete(a);
+  }
   const list = (archives || []).slice().sort((a, b) => b.period.localeCompare(a.period)); // plus recent en premier
   const monthLabel = (ym) => {
     const p = (ym || "").split("-");
@@ -4160,6 +5056,19 @@ function TabArchives({ archives, period, team }) {
           À chaque changement de mois, tout est mis de côté ici (clients &amp; CA, trésorerie &amp; dépenses, dettes, objectif atteint) puis les compteurs repartent à zéro. Appuie sur un mois pour revoir tout ce qui s'est passé, sans exception.
         </div>
         <div style={{ color: C.muted, fontSize: 11.5, marginTop: 6 }}>Mois en cours : <b style={{ color: C.goldLight }}>{monthLabel(period)}</b> (encore en direct, pas encore archivé).</div>
+        {!editUnlocked ? (
+          <MiniUnlock code={codes.admin} label="Modifier les archives (ajouter / corriger / supprimer) — code Administration" onUnlock={() => setEditUnlocked(true)} />
+        ) : (
+          <div style={{ marginTop: 10, borderTop: `1px solid ${C.border}`, paddingTop: 10 }}>
+            <div style={{ fontSize: 12, color: C.greenLight, marginBottom: 6 }}>✓ Mode modification activé : ouvre un mois pour ajouter, corriger ou supprimer ses ventes, dépenses et dettes.</div>
+            <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+              <label style={{ fontSize: 12, color: C.muted }}>Créer le mois :</label>
+              <input type="month" value={newMonth} max={period} onChange={e => setNewMonth(e.target.value)} style={{ ...inputStyle, width: 160 }} />
+              <button onClick={() => onCreate(newMonth)} style={{ ...btnGold, width: "auto", padding: "8px 12px", fontSize: 12 }}><Plus size={13} /> Créer l'archive</button>
+            </div>
+            <div style={{ fontSize: 11, color: C.muted, marginTop: 6 }}>Pratique pour ressaisir un mois perdu (ex. septembre) à partir des reçus WhatsApp ou des paiements Orange Money / Wave.</div>
+          </div>
+        )}
       </Card>
 
       {list.length === 0 && (
@@ -4211,6 +5120,56 @@ function TabArchives({ archives, period, team }) {
                   </div>
                 )}
 
+                {editUnlocked ? (<>
+                  <div>
+                    <div style={secTitle}>Clients &amp; CA ({clients.length})</div>
+                    <EditableList items={clients} onChange={list => onUpdate({ ...a, clients: list })} itemLabel={c => `${c.prenom || ""} ${c.nom || ""}`.trim()}
+                      fields={[
+                        { key: "prenom", label: "Prénom" }, { key: "nom", label: "Nom" }, { key: "whatsapp", label: "WhatsApp" },
+                        { key: "pack", label: "Service / pack" }, { key: "dateInscription", label: "Date", type: "date" },
+                        { key: "montant", label: "Montant payé (FCFA)", type: "number" }, { key: "prixTotal", label: "Prix total (FCFA, optionnel)", type: "number" },
+                        { key: "owner", label: "Suivi par", type: "select", options: team.map(m => ({ value: m.id, label: m.name })) },
+                        { key: "statut", label: "Statut", type: "select", options: ["Payé", "En discussion", "Devis envoyé", "Perdu", "À contacter"] },
+                      ]}
+                      newItem={{ id: Date.now(), prenom: "", nom: "", whatsapp: "", pack: "", dateInscription: `${a.period}-01`, montant: "", prixTotal: "", owner: team[0]?.id || "", statut: "Payé", historique: [] }}
+                      addLabel="Ajouter une vente à ce mois"
+                      render={(c, i, acts) => (
+                        <Row actions={acts} style={rowStyle}>
+                          <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+                            <span>{c.prenom} {c.nom} <span style={{ color: C.muted }}>· {c.pack || c.statut}</span></span>
+                            <span style={{ fontWeight: 700, color: C.goldLight, whiteSpace: "nowrap" }}>{fcfa(c.montant)}</span>
+                          </div>
+                        </Row>
+                      )} />
+                  </div>
+                  <div>
+                    <div style={secTitle}>Trésorerie — dépenses ({expenses.length})</div>
+                    <EditableList items={expenses} onChange={list => onUpdate({ ...a, expenses: list })} itemLabel={e => e.label}
+                      fields={[{ key: "label", label: "Description" }, { key: "categorie", label: "Catégorie", type: "select", options: DEPENSES_CATEGORIES }, { key: "montant", label: "Montant (FCFA)", type: "number" }, { key: "date", label: "Date", type: "date" }]}
+                      newItem={{ id: Date.now(), label: "", categorie: DEPENSES_CATEGORIES[0], montant: "", date: `${a.period}-01` }} addLabel="Ajouter une dépense"
+                      render={(e, i, acts) => (
+                        <Row actions={acts} style={rowStyle}>
+                          <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+                            <span>{e.label || "Dépense"}</span><span style={{ fontWeight: 700, color: C.rustLight }}>{fcfa(e.montant)}</span>
+                          </div>
+                        </Row>
+                      )} />
+                  </div>
+                  <div>
+                    <div style={secTitle}>Dettes &amp; rappels ({dettes.length})</div>
+                    <EditableList items={dettes} onChange={list => onUpdate({ ...a, dettes: list })} itemLabel={d => d.clientNom}
+                      fields={[{ key: "clientNom", label: "Client" }, { key: "service", label: "Service" }, { key: "montantDu", label: "Montant dû (FCFA)", type: "number" }, { key: "dateEcheance", label: "Échéance", type: "date" }, { key: "statut", label: "Statut", type: "select", options: ["En attente", "Payée"] }]}
+                      newItem={{ id: Date.now(), clientNom: "", service: "", montantDu: "", dateEcheance: `${a.period}-01`, statut: "En attente" }} addLabel="Ajouter une dette"
+                      render={(d, i, acts) => (
+                        <Row actions={acts} style={rowStyle}>
+                          <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+                            <span>{d.clientNom || "Dette"} <span style={{ color: C.muted }}>{d.statut ? "· " + d.statut : ""}</span></span>
+                            <span style={{ fontWeight: 700, color: d.statut === "Payée" ? C.greenLight : C.goldLight }}>{fcfa(d.montantDu)}</span>
+                          </div>
+                        </Row>
+                      )} />
+                  </div>
+                </>) : (<>
                 {/* Clients du mois */}
                 <div>
                   <div style={{ fontSize: 12, fontWeight: 700, color: C.gold, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>Clients &amp; CA ({clients.length})</div>
@@ -4253,12 +5212,144 @@ function TabArchives({ archives, period, team }) {
                   </div>
                 </div>
 
-                <div style={{ fontSize: 10.5, color: C.muted, textAlign: "right" }}>Archivé le {a.closedAt ? new Date(a.closedAt).toLocaleDateString("fr-FR") : "—"}</div>
+                </>)}
+
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <button onClick={() => askDelete(a, monthLabel(a.period))} style={{ ...iconBtn, color: C.rustLight, padding: "5px 9px", display: "flex", alignItems: "center", gap: 4 }}><Trash2 size={12} /> Supprimer l'archive</button>
+                  <div style={{ fontSize: 10.5, color: C.muted, textAlign: "right" }}>{a.recovered ? "Récupérée" : "Archivé"} le {a.closedAt ? new Date(a.closedAt).toLocaleDateString("fr-FR") : "—"}</div>
+                </div>
               </div>
             )}
           </Card>
         );
       })}
+    </div>
+  );
+}
+
+/* ---------------------------------- ADMIN : RÉCUPÉRATION ---------------------------------- */
+// Fouille TOUTE la base (listes, archives, sauvegardes, diagnostics IA) pour
+// retrouver les clients/ventes d'un mois donne, puis permet d'en recreer l'archive.
+function monthOfClient(c) {
+  const fromDate = (s) => (typeof s === "string" && /^\d{4}-\d{2}/.test(s)) ? s.slice(0, 7) : "";
+  const fromId = () => {
+    const n = Number(c.id);
+    return n > 1500000000000 && n < 4000000000000 ? new Date(n).toISOString().slice(0, 7) : "";
+  };
+  return fromDate(c.dateInscription) || fromId();
+}
+function collectClients(value, sourceKey, out, depth = 0) {
+  if (!value || depth > 6) return;
+  if (Array.isArray(value)) { value.forEach(v => collectClients(v, sourceKey, out, depth + 1)); return; }
+  if (typeof value !== "object") return;
+  if (value.id != null && typeof value.nom === "string" && ("montant" in value || "dateInscription" in value || "pack" in value)) {
+    out.push({ client: value, source: sourceKey });
+  }
+  Object.values(value).forEach(v => { if (v && typeof v === "object") collectClients(v, sourceKey, out, depth + 1); });
+}
+
+function AdminRecuperation({ onRestoreArchive }) {
+  const prevMonth = (() => { const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - 1); return d.toISOString().slice(0, 7); })();
+  const [month, setMonth] = useState(prevMonth);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [result, setResult] = useState(null); // { clients, diagOnly, keys }
+  const [restored, setRestored] = useState(false);
+
+  async function scan() {
+    setBusy(true); setError(""); setResult(null); setRestored(false);
+    const rows = await loadByPrefix("");
+    setBusy(false);
+    if (!rows) { setError("Lecture de la base impossible. Vérifie la connexion et réessaie."); return; }
+    const found = [];
+    const diags = [];
+    rows.forEach(r => {
+      if (r.key.startsWith("diagnostic:")) { diags.push(r.value); return; }
+      collectClients(r.value, r.key, found);
+    });
+    // Dedoublonnage par id : on garde la version la plus complete (plus gros montant paye).
+    const byId = new Map();
+    found.filter(f => monthOfClient(f.client) === month).forEach(f => {
+      const k = String(f.client.id);
+      const prev = byId.get(k);
+      const sources = new Set([...(prev?.sources || []), f.source]);
+      if (!prev || (Number(f.client.montant) || 0) > (Number(prev.client.montant) || 0)) byId.set(k, { client: f.client, sources });
+      else prev.sources = sources;
+    });
+    // Clients connus seulement par leur diagnostic IA (nom/WhatsApp, sans montant).
+    const diagOnly = diags.filter(d => d && d.clientId && !byId.has(String(d.clientId)) && monthOfClient({ id: d.clientId }) === month)
+      .map(d => ({ id: d.clientId, nom: d.formData?.nom || d.clientNom || "", prenom: d.formData?.prenom || "", whatsapp: d.formData?.whatsapp || "" }));
+    setResult({
+      clients: [...byId.values()].map(v => ({ ...v.client, _sources: [...v.sources] })),
+      diagOnly,
+      keys: rows.map(r => ({ key: r.key, updated: r.updated_at })).sort((a, b) => (b.updated || "").localeCompare(a.updated || "")),
+    });
+  }
+
+  function restore() {
+    if (!result || !result.clients.length) return;
+    if (!window.confirm(`Créer l'archive de ${month} avec ${result.clients.length} client(s) retrouvé(s) ?`)) return;
+    onRestoreArchive(month, result.clients.map(({ _sources, ...c }) => c));
+    setRestored(true);
+  }
+
+  const total = result ? result.clients.reduce((s, c) => s + (Number(c.montant) || 0), 0) : 0;
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      <H2>Récupérer les ventes d'un mois</H2>
+      <Card style={{ borderColor: C.gold }}>
+        <div style={{ fontSize: 12.5, color: C.muted }}>
+          Cet outil fouille <b style={{ color: C.text }}>toute la base</b> (clients en cours, archives, sauvegardes automatiques, diagnostics IA) pour retrouver les clients inscrits pendant le mois choisi, puis peut recréer l'archive de ce mois.
+        </div>
+        <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 10, flexWrap: "wrap" }}>
+          <label style={{ fontSize: 12, color: C.muted }}>Mois :</label>
+          <input type="month" value={month} onChange={e => { setMonth(e.target.value); setResult(null); }} style={{ ...inputStyle, width: 160 }} />
+          <button onClick={scan} disabled={busy} style={{ ...btnGold, width: "auto", padding: "8px 14px" }}><Search size={14} /> {busy ? "Recherche…" : "Rechercher"}</button>
+        </div>
+        {error && <div style={{ color: C.rustLight, fontSize: 12, marginTop: 8 }}>{error}</div>}
+      </Card>
+
+      {result && (<>
+        <Card>
+          <Eyebrow>Clients retrouvés ({result.clients.length}) — CA {fcfa(total)}</Eyebrow>
+          {result.clients.length === 0 && <div style={{ fontSize: 12.5, color: C.muted }}>Aucun client avec montant retrouvé pour ce mois dans la base.</div>}
+          <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 6 }}>
+            {result.clients.map(c => (
+              <div key={c.id} style={{ background: C.cardAlt, borderRadius: 8, padding: "6px 10px", fontSize: 12.5 }}>
+                <div style={{ display: "flex", justifyContent: "space-between" }}>
+                  <span>{c.prenom} {c.nom} <span style={{ color: C.muted }}>· {c.pack || "—"} · {c.dateInscription || ""}</span></span>
+                  <b style={{ color: C.goldLight }}>{fcfa(c.montant)}</b>
+                </div>
+                <div style={{ fontSize: 10.5, color: C.muted }}>Trouvé dans : {c._sources.join(", ")}</div>
+              </div>
+            ))}
+          </div>
+          {result.clients.length > 0 && (
+            <button onClick={restore} disabled={restored} style={{ ...btnGold, marginTop: 10, background: C.green }}>
+              <Archive size={14} /> {restored ? "Archive recréée ✓ (voir Ventes & Finance → Archives)" : `Recréer l'archive de ${month}`}
+            </button>
+          )}
+        </Card>
+
+        {result.diagOnly.length > 0 && (
+          <Card>
+            <Eyebrow>Clients retrouvés via les diagnostics IA ({result.diagOnly.length})</Eyebrow>
+            <div style={{ fontSize: 11.5, color: C.muted, marginBottom: 6 }}>Nom et WhatsApp connus, mais le montant payé n'a pas été retrouvé : à ressaisir dans le CRM si besoin.</div>
+            {result.diagOnly.map(c => (
+              <div key={c.id} style={{ fontSize: 12.5, padding: "4px 0" }}>{c.prenom} {c.nom} <span style={{ color: C.muted }}>· {c.whatsapp || "—"}</span></div>
+            ))}
+          </Card>
+        )}
+
+        <Card>
+          <Eyebrow>Contenu de la base ({result.keys.length} lignes)</Eyebrow>
+          <div style={{ fontSize: 11.5, color: C.muted, marginBottom: 6 }}>Les lignes « backup:… » sont les sauvegardes automatiques quotidiennes (créées à partir de maintenant).</div>
+          <div style={{ maxHeight: 220, overflowY: "auto", fontSize: 11.5, fontFamily: "monospace" }}>
+            {result.keys.map(k => <div key={k.key}>{k.key} <span style={{ color: C.muted }}>· {k.updated ? new Date(k.updated).toLocaleString("fr-FR") : ""}</span></div>)}
+          </div>
+        </Card>
+      </>)}
     </div>
   );
 }
@@ -4272,7 +5363,7 @@ function ArchStat({ label, value, color }) {
   );
 }
 
-function TabAdministration({ section, caisse, setCaisse, team, setTeam, codes, setCodes, onResetAll, onCloseMonth, currentMonth, agency, setAgency, guides, setGuides, formationLiens, setFormationLiens, pricing, setPricing, commissionRate, setCommissionRate }) {
+function TabAdministration({ section, caisse, setCaisse, team, setTeam, codes, setCodes, onResetAll, onCloseMonth, onRestoreArchive, currentMonth, agency, setAgency, guides, setGuides, formationLiens, setFormationLiens, pricing, setPricing, commissionRate, setCommissionRate }) {
   const [adminUnlocked, setAdminUnlocked] = useState(false);
   // Mois a archiver par defaut = le mois precedent (ex. aujourd'hui septembre -> "2026-08").
   const prevMonth = (() => { const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - 1); return d.toISOString().slice(0, 7); })();
@@ -4286,6 +5377,7 @@ function TabAdministration({ section, caisse, setCaisse, team, setTeam, codes, s
   const [rateSaved, setRateSaved] = useState(false);
   const [codesForm, setCodesForm] = useState(codes);
   const [codesSaved, setCodesSaved] = useState(false);
+  const [codesReset, setCodesReset] = useState("");
   const [agencyForm, setAgencyForm] = useState(agency);
   const [agencySaved, setAgencySaved] = useState(false);
   const [guidesForm, setGuidesForm] = useState(guides || DEFAULT_GUIDES);
@@ -4308,6 +5400,8 @@ function TabAdministration({ section, caisse, setCaisse, team, setTeam, codes, s
   }
   function removeMember(id) {
     if (team.length <= 1) return;
+    const m = team.find(x => x.id === id);
+    if (!confirmDelete(`le membre « ${m?.name || ""} » de l'équipe`)) return;
     setTeam(team.filter(m => m.id !== id));
     if (editingId === id) setEditingId(null);
   }
@@ -4359,11 +5453,19 @@ function TabAdministration({ section, caisse, setCaisse, team, setTeam, codes, s
     setLienForm({ ...lienForm, [gid]: { label: "", url: "" } });
   }
   function removeLien(gid, id) {
+    if (!confirmDelete("ce lien de formation")) return;
     const current = (formationLiens || {})[gid] || [];
     setFormationLiens({ ...(formationLiens || {}), [gid]: current.filter(l => l.id !== id) });
   }
+  const [editingLien, setEditingLien] = useState(null);
+  function saveLien(gid, id, f) {
+    if (!f.label.trim() || !f.url.trim()) return;
+    const current = (formationLiens || {})[gid] || [];
+    setFormationLiens({ ...(formationLiens || {}), [gid]: current.map(l => l.id === id ? { ...l, ...f } : l) });
+    setEditingLien(null);
+  }
   function confirmReset() {
-    if (resetCodeInput !== codes.reset) { setResetError(true); return; }
+    if (!codeMatchesStrict(resetCodeInput, codes.reset)) { setResetError(true); return; }
     onResetAll();
     setResetStep(false);
     setResetCodeInput("");
@@ -4471,9 +5573,26 @@ function TabAdministration({ section, caisse, setCaisse, team, setTeam, codes, s
       <div>
         <H2>Codes d'accès — modifiables</H2>
         <Card style={{ borderColor: C.gold, marginBottom: 10 }}>
-          <Eyebrow>Code de secours permanent</Eyebrow>
-          <div style={{ fontSize: 16, fontWeight: 800, color: C.goldLight, letterSpacing: 1, margin: "4px 0" }}>KBSAUTO2026</div>
-          <div style={{ fontSize: 11.5, color: C.muted }}>Ce code fonctionne toujours, sur tous les écrans verrouillés de l'app (connexion, Objectif, CRM, Planning, Administration, Checklists, Formation) — même si les codes ci-dessous sont oubliés ou mal enregistrés. Il n'est pas modifiable : c'est ton filet de sécurité pour ne jamais être bloqué dehors.</div>
+          <Eyebrow>Code maître unique — ouvre toutes les sections</Eyebrow>
+          <div style={{ fontSize: 16, fontWeight: 800, color: C.goldLight, letterSpacing: 1, margin: "4px 0" }}>{MASTER_CODE}</div>
+          <div style={{ fontSize: 11.5, color: C.muted }}>Ce code fonctionne toujours, sur <b>tous</b> les écrans verrouillés de l'app (connexion, Objectif, CRM, Trésorerie, Ressources, Administration, Kanban, checklists de chaque membre, Formation, Réinitialisation) — même si les codes ci-dessous sont oubliés. Il n'est pas modifiable : c'est ton filet de sécurité. Garde-le pour toi seul.</div>
+        </Card>
+        <Card style={{ marginBottom: 10 }}>
+          <Eyebrow>Codes oubliés ?</Eyebrow>
+          <div style={{ fontSize: 11.5, color: C.muted, marginBottom: 8 }}>
+            Remet tous les codes à leur valeur d'origine : général <b>{DEFAULT_CODES.app}</b>, Objectif <b>{DEFAULT_CODES.ceo}</b>, CRM/Trésorerie <b>{DEFAULT_CODES.catherine}</b>, Ressources <b>{DEFAULT_CODES.ressources}</b>, Administration <b>{DEFAULT_CODES.admin}</b>, Réinitialisation <b>{DEFAULT_CODES.reset}</b> — et chaque membre reçoit le code <b>PRÉNOM2026</b> (ex. {team[0] ? autoCode(team[0].name) : "KADER2026"}).
+          </div>
+          <button onClick={async () => {
+            if (!window.confirm("Réinitialiser TOUS les codes (sections + membres) à leur valeur d'origine ?")) return;
+            setCodes(DEFAULT_CODES);
+            setCodesForm(DEFAULT_CODES);
+            setTeam(team.map(m => ({ ...m, code: autoCode(m.name) })));
+            const err = await saveShared("kbs:codes", DEFAULT_CODES);
+            setCodesReset(err ? `Erreur : ${err}` : "✓ Tous les codes ont été réinitialisés.");
+          }} style={{ ...iconBtn, color: C.goldLight, borderColor: C.gold, padding: "8px 12px", fontSize: 12 }}>
+            <RotateCcw size={13} /> Réinitialiser tous les codes
+          </button>
+          {codesReset && <div style={{ fontSize: 12, color: codesReset.startsWith("✓") ? C.greenLight : C.rustLight, marginTop: 8 }}>{codesReset}</div>}
         </Card>
         <Card>
           <div style={{ display: "flex", flexDirection: "column", gap: 8, fontSize: 12.5 }}>
@@ -4497,7 +5616,7 @@ function TabAdministration({ section, caisse, setCaisse, team, setTeam, codes, s
             </label>
           </div>
           <button onClick={saveCodes} style={{ ...btnGold, marginTop: 10 }}><Save size={14} /> {codesSaved ? "Enregistré ✓" : "Enregistrer les codes"}</button>
-          <div style={{ color: C.muted, fontSize: 11, marginTop: 10 }}>Chaque code est indépendant : connaître l'un ne donne accès à aucun autre.</div>
+          <div style={{ color: C.muted, fontSize: 11, marginTop: 10 }}>Chaque code est indépendant : connaître l'un ne donne accès à aucun autre (seul le code maître ouvre tout).</div>
         </Card>
 
         <H2 style={{ marginTop: 18 }}>Codes personnels de l'équipe</H2>
@@ -4547,8 +5666,58 @@ function TabAdministration({ section, caisse, setCaisse, team, setTeam, codes, s
               <input value={agencyForm.phone2} onChange={e => setAgencyForm({ ...agencyForm, phone2: e.target.value })} style={{ ...inputStyle, marginTop: 4 }} />
             </label>
             <label style={{ color: C.muted }}>Adresse (optionnel)
-              <input value={agencyForm.address} onChange={e => setAgencyForm({ ...agencyForm, address: e.target.value })} style={{ ...inputStyle, marginTop: 4 }} />
+              <input value={agencyForm.address || ""} onChange={e => setAgencyForm({ ...agencyForm, address: e.target.value })} style={{ ...inputStyle, marginTop: 4 }} />
             </label>
+            <label style={{ color: C.muted }}>Slogan (sous le nom, en haut des documents)
+              <input value={agencyForm.slogan || ""} onChange={e => setAgencyForm({ ...agencyForm, slogan: e.target.value })} style={{ ...inputStyle, marginTop: 4 }} />
+            </label>
+            <label style={{ color: C.muted }}>Site web / page Facebook (optionnel)
+              <input value={agencyForm.website || ""} onChange={e => setAgencyForm({ ...agencyForm, website: e.target.value })} style={{ ...inputStyle, marginTop: 4 }} />
+            </label>
+            <div style={{ display: "flex", gap: 8 }}>
+              <label style={{ color: C.muted, flex: 1 }}>RCCM (optionnel)
+                <input value={agencyForm.rccm || ""} onChange={e => setAgencyForm({ ...agencyForm, rccm: e.target.value })} style={{ ...inputStyle, marginTop: 4 }} />
+              </label>
+              <label style={{ color: C.muted, flex: 1 }}>NIF (optionnel)
+                <input value={agencyForm.nif || ""} onChange={e => setAgencyForm({ ...agencyForm, nif: e.target.value })} style={{ ...inputStyle, marginTop: 4 }} />
+              </label>
+            </div>
+            <label style={{ color: C.muted }}>Modalités de paiement (Orange Money, Wave, banque…)
+              <textarea value={agencyForm.paymentInfo || ""} onChange={e => setAgencyForm({ ...agencyForm, paymentInfo: e.target.value })} style={{ ...inputStyle, marginTop: 4, minHeight: 50, resize: "vertical" }} />
+            </label>
+            <label style={{ color: C.muted }}>Conditions par défaut des devis (optionnel)
+              <textarea value={agencyForm.conditionsDevis || ""} onChange={e => setAgencyForm({ ...agencyForm, conditionsDevis: e.target.value })} placeholder="Ex : Devis valable 15 jours. Acompte de 50 % à la commande." style={{ ...inputStyle, marginTop: 4, minHeight: 50, resize: "vertical" }} />
+            </label>
+            <label style={{ color: C.muted }}>Notes par défaut des factures (optionnel)
+              <textarea value={agencyForm.conditionsFacture || ""} onChange={e => setAgencyForm({ ...agencyForm, conditionsFacture: e.target.value })} placeholder="Ex : Merci de régler avant la date d'échéance." style={{ ...inputStyle, marginTop: 4, minHeight: 50, resize: "vertical" }} />
+            </label>
+
+            <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 10, marginTop: 4 }}>
+              <Eyebrow>Logo &amp; couleurs (reçus, devis, factures)</Eyebrow>
+              <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 6, flexWrap: "wrap" }}>
+                <img src={agencyForm.logo || BRAND_LOGO} alt="Logo" style={{ width: 64, height: 64, objectFit: "contain", borderRadius: 10, background: C.cardAlt }} />
+                <label style={{ ...iconBtn, padding: "8px 12px", fontSize: 12, display: "flex", alignItems: "center", gap: 6, color: C.goldLight, borderColor: C.gold }}>
+                  <Upload size={13} /> Changer le logo
+                  <input type="file" accept="image/*" style={{ display: "none" }} onChange={e => { const f = e.target.files && e.target.files[0]; if (f) resizeLogo(f).then(url => setAgencyForm(a => ({ ...a, logo: url }))); e.target.value = ""; }} />
+                </label>
+                {agencyForm.logo && <button onClick={() => setAgencyForm({ ...agencyForm, logo: "" })} style={{ ...iconBtn, padding: "8px 12px", fontSize: 12 }}>Logo officiel KBS</button>}
+              </div>
+              <div style={{ display: "flex", gap: 14, marginTop: 10, flexWrap: "wrap" }}>
+                <label style={{ color: C.muted, display: "flex", alignItems: "center", gap: 6 }}><Palette size={13} /> Couleur principale
+                  <input type="color" value={agencyForm.brandColor || "#011B45"} onChange={e => setAgencyForm({ ...agencyForm, brandColor: e.target.value })} style={{ width: 40, height: 28, border: "none", background: "none" }} />
+                </label>
+                <label style={{ color: C.muted, display: "flex", alignItems: "center", gap: 6 }}>Couleur d'accent
+                  <input type="color" value={agencyForm.brandColor2 || "#F39200"} onChange={e => setAgencyForm({ ...agencyForm, brandColor2: e.target.value })} style={{ width: 40, height: 28, border: "none", background: "none" }} />
+                </label>
+                <button onClick={() => setAgencyForm({ ...agencyForm, brandColor: "#011B45", brandColor2: "#F39200" })} style={{ ...iconBtn, padding: "6px 10px" }}>Couleurs du logo KBS</button>
+              </div>
+              <div style={{ display: "flex", gap: 6, marginTop: 10, flexWrap: "wrap" }}>
+                <span style={{ fontSize: 11.5, color: C.muted, alignSelf: "center" }}>Aperçu :</span>
+                <button onClick={() => buildFacturePDF(SAMPLE_DOC("FAC"), agencyForm, BRAND_LOGO)} style={{ ...iconBtn, padding: "6px 10px" }}>Facture</button>
+                <button onClick={() => buildDevisPDF(SAMPLE_DOC("DEV"), agencyForm, BRAND_LOGO)} style={{ ...iconBtn, padding: "6px 10px" }}>Devis</button>
+                <button onClick={() => buildRecuPDF(SAMPLE_RECU, agencyForm, BRAND_LOGO)} style={{ ...iconBtn, padding: "6px 10px" }}>Reçu</button>
+              </div>
+            </div>
           </div>
           <button onClick={saveAgency} style={{ ...btnGold, marginTop: 10 }}><Save size={14} /> {agencySaved ? "Enregistré ✓" : "Enregistrer les coordonnées"}</button>
           <div style={{ color: C.muted, fontSize: 11, marginTop: 10 }}>Ces informations apparaissent automatiquement en en-tête et en pied de page de chaque reçu et devis PDF.</div>
@@ -4594,9 +5763,16 @@ function TabAdministration({ section, caisse, setCaisse, team, setTeam, codes, s
             <Eyebrow>Liens</Eyebrow>
             <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 6, marginBottom: 8 }}>
               {((formationLiens || {})[m.id] || []).map(l => (
-                <div key={l.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: C.cardAlt, borderRadius: 8, padding: "6px 10px" }}>
-                  <span style={{ fontSize: 12.5 }}>{l.label}</span>
-                  <button onClick={() => removeLien(m.id, l.id)} style={{ background: "none", border: "none", color: C.rustLight, cursor: "pointer" }}><Trash2 size={14} /></button>
+                <div key={l.id} style={{ background: C.cardAlt, borderRadius: 8, padding: "6px 10px" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <span style={{ fontSize: 12.5 }}>{l.label}</span>
+                    <EditDeleteButtons editing={editingLien === l.id} onEdit={() => setEditingLien(editingLien === l.id ? null : l.id)} onDelete={() => removeLien(m.id, l.id)} />
+                  </div>
+                  {editingLien === l.id && (
+                    <EditFields value={{ label: l.label || "", url: l.url || "" }}
+                      fields={[{ key: "label", label: "Titre du lien" }, { key: "url", label: "Adresse (https://…)" }]}
+                      onSave={(f) => saveLien(m.id, l.id, f)} onCancel={() => setEditingLien(null)} />
+                  )}
                 </div>
               ))}
             </div>
@@ -4613,6 +5789,8 @@ function TabAdministration({ section, caisse, setCaisse, team, setTeam, codes, s
       </>)}
 
       {section === "adminCaisse" && <TabCaissePerso caisse={caisse} setCaisse={setCaisse} />}
+
+      {section === "adminRecup" && <AdminRecuperation onRestoreArchive={onRestoreArchive} />}
 
       {section === "adminReset" && (<>
       <div>

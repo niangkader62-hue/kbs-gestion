@@ -4,8 +4,8 @@
   "description": "QG de gestion interne — KBS Digital Agency",
   "start_url": ".",
   "display": "standalone",
-  "background_color": "#141316",
-  "theme_color": "#141316",
+  "background_color": "#011B45",
+  "theme_color": "#011B45",
   "icons": [
     {
       "src": "icon-192.png",
