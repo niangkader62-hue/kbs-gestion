@@ -6,6 +6,33 @@ Les entrées les plus récentes sont en haut.
 
 ---
 
+## 2026-10-13 (suite) — Logo officiel, factures, documents pro, tout modifiable
+
+1. **Logo officiel KBS Digital Agency** (bleu marine `#011B45` + orange `#F39200`)
+   intégré : en-tête, écran de connexion, icônes de l'app (PWA), documents PDF.
+   Couleurs de toute l'application alignées sur le logo. Logo et couleurs
+   modifiables dans Administration → Agence (+ aperçu des 3 documents).
+2. **Nouveau moteur de documents** (`src/documents.js`) — reçu, devis, facture
+   au même gabarit professionnel : numérotation séquentielle (DEV-/FAC-/REC-
+   AAAA-0001), bloc client, tableau N°/Désignation/Qté/PU/Montant, remise,
+   total, déjà réglé / reste à payer, **montant en lettres** (« Arrêtée la
+   présente facture à la somme de… »), modalités de paiement, signatures,
+   tampon PAYÉ/ACOMPTE, mentions légales (RCCM, NIF) et pagination.
+3. **Onglet Factures** (Ventes & Finance) : création, modification,
+   suppression, duplication, règlements partiels avec reçu par règlement,
+   envoi WhatsApp. « Convertir en facture » depuis un devis, « Créer la
+   facture » depuis la fiche d'un client du CRM.
+4. **Reçus** : un reçu par versement (avec mode de paiement : Orange Money,
+   Wave, espèces…) + reçu récapitulatif.
+5. **Modifier / Supprimer partout** : en plus de la liste précédente — Boîte
+   à outils IA, Plan 30 jours, Cible, Copywriting (hooks & scripts), Scripts
+   DM, Prospection terrain (+ PDF du guide), Académie, Tarifs, versements,
+   notes d'historique, checklists Kanban, diagnostics IA, et **contenu des
+   archives** (ventes/dépenses/dettes d'un mois archivé, création d'un mois
+   pour ressaisir septembre). Textes modifiés stockés dans `kbs:content`.
+
+---
+
 ## 2026-10-13 — Ventes de septembre disparues, avances, codes, modifier/supprimer
 
 Branche `ccr-5b04f8c0-vt8y8v` (pas encore fusionnée dans `main`).
