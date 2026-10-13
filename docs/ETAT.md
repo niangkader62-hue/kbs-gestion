@@ -6,6 +6,50 @@ Les entrées les plus récentes sont en haut.
 
 ---
 
+## 2026-10-13 (suite 2) — KBSAUTO devient « KBS Gestion » (maquette validée)
+
+Maquette validée par Kader : https://claude.ai/artifact/Dggsvv9GEx9kuLGZqHnCWt
+(16 écrans : connexion, accueil, menu, vendre, encaisser, reçu, stock, nouveau
+produit, mouvement, clients, fiche client, documents, finances, équipe,
+réglages, version ordinateur).
+
+### Fait (étape 1 : design + navigation + produits/stock/caisse)
+1. **Nom** : KBS Gestion (titre, PWA, écrans).
+2. **Thème** : sombre bleu marine + orange du logo, polices Archivo (titres)
+   et Figtree (texte), cartes arrondies, boutons orange à texte marine.
+3. **Navigation** : barre du bas sur téléphone (Accueil, Clients, bouton
+   Vendre au centre, Stock, Menu) ; menu latéral sur ordinateur (≥ 900 px) ;
+   écran **Menu** avec tous les modules par famille ; sous-navigation en
+   pastilles entre les écrans d'une même famille.
+4. **Connexion** : choix du membre + code (code perso, code général ou code
+   maître). Le membre connecté devient le vendeur par défaut.
+5. **Accueil** : CA du mois (encaissé / reste dehors), objectif, bénéfice net,
+   raccourcis, « À traiter » (stock bas, clients qui doivent, factures en
+   retard, tâches).
+6. **Produits & stock** (nouveau, `kbs:products`, `kbs:stockMoves`) : fiche
+   produit (photo, catégorie, code-barres, unité, prix d'achat/vente, marge,
+   stock, seuil d'alerte, fournisseur, produit ou service sans stock),
+   valeur du stock, alertes, entrées / sorties avec motif, inventaire,
+   historique des mouvements (modifier/supprimer avec correction du stock).
+7. **Vendre** (nouveau) : catalogue (recherche, scan code-barres caméra ou
+   lecteur, catégories), article libre, panier, encaisser (client comptoir /
+   existant / nouveau, vendeur, Orange Money / Wave / espèces / Moov…,
+   montant reçu, monnaie à rendre, avance → reste en crédit client, remise
+   validée par le code CEO), reçu à l'écran + PDF + WhatsApp + impression
+   ticket 80 mm. Chaque vente est enregistrée dans le CRM (achats + versements)
+   donc comptée dans le CA, les commissions, les archives et les relances.
+8. **Clients** : recherche + filtres (Tous, Doivent, Prospects, Payés, Ventes caisse).
+
+### Reste à faire (prochaines étapes)
+- Backend : passer du stockage clé/valeur `kbs_storage` à de vraies tables
+  Supabase (produits, ventes, clients, paiements…) avec RLS — à faire avec
+  accès au projet Supabase de KBSAUTO (`vspepqwipgjkmnemwlfa`).
+- Refonte visuelle fine des anciens écrans (CRM en liste compacte + fiche
+  client plein écran, Finances avec graphique 6 mois, Équipe).
+- Fournisseurs & bons de commande ; rapport WhatsApp des finances.
+
+---
+
 ## 2026-10-13 (suite) — Logo officiel, factures, documents pro, tout modifiable
 
 1. **Logo officiel KBS Digital Agency** (bleu marine `#011B45` + orange `#F39200`)

@@ -14,7 +14,8 @@ import {
   Award, TrendingDown, Lock, LogOut, CalendarClock, Send, History, FileText,
   Shield, UserPlus, AlertTriangle, Search, Copy, Radar, CalendarCheck,
   Pencil, Save, KeyRound, RefreshCw, X, MapPin, BookOpen, Bell, Eye, EyeOff,
-  Archive, Percent, Receipt, Upload, Palette
+  Archive, Percent, Receipt, Upload, Palette, Home, Box, Menu as MenuIcon, BarChart3, Settings,
+  ShoppingBag, ScanLine, Minus, Clock, ArrowDownToLine, ArrowUpFromLine, ClipboardList, Camera, Truck, Package, Printer, CheckCircle, Tag
 } from "lucide-react";
 
 /* ---------------------------------- SUPABASE ---------------------------------- */
@@ -29,28 +30,46 @@ const C = {
   gold: "var(--c-gold)", goldLight: "var(--c-goldLight)", green: "var(--c-green)", greenLight: "var(--c-greenLight)",
   rust: "var(--c-rust)", rustLight: "var(--c-rustLight)", text: "var(--c-text)", muted: "var(--c-muted)",
   white: "#FFFFFF", black: "#0D0D0D",
+  surf: "var(--c-surf)", card2: "var(--c-card2)", navy: "var(--c-navy)",
 };
 
-const FONT_IMPORT = `@import url('https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;600;700;800&family=Nunito:wght@400;500;600;700;800;900&display=swap');
+const FONT_IMPORT = `@import url('https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800;900&family=Figtree:wght@400;500;600;700;800&display=swap');
 .kbs-navbar::-webkit-scrollbar { height: 0; display: none; }
 .kbs-navbar { scrollbar-width: none; -ms-overflow-style: none; }
-@keyframes kbsSwipeHint { 0%, 100% { opacity: .45; transform: translateX(0); } 50% { opacity: 1; transform: translateX(4px); } }
-.kbs-hint { animation: kbsSwipeHint 1.9s ease-in-out infinite; }
+/* Charte KBS Gestion : bleu marine + orange du logo (maquette validee) */
 :root{
-  --c-bg:#F3F5FA;--c-card:#FFFFFF;--c-cardAlt:#EAEFF8;--c-border:rgba(1,27,69,0.11);
-  --c-gold:#E87A00;--c-goldLight:#F39200;--c-green:#1E8A5F;--c-greenLight:#1E8A5F;
-  --c-rust:#C62828;--c-rustLight:#C62828;--c-text:#0B1B3F;--c-muted:#5B6683;
-  --c-navy:#011B45;
+  --c-bg:#061430;--c-card:#10285A;--c-cardAlt:#0A1F45;--c-border:rgba(255,255,255,0.10);
+  --c-gold:#F39200;--c-goldLight:#FDB402;--c-green:#3CBE7C;--c-greenLight:#6FD39E;
+  --c-rust:#FF7A6B;--c-rustLight:#FF8F82;--c-text:#F4F6FB;--c-muted:#A9B4D0;
+  --c-navy:#011B45;--c-surf:#0A1F45;--c-card2:#173571;
 }
-@media (prefers-color-scheme: dark){
-  :root{
-    --c-bg:#06122E;--c-card:#0C1E45;--c-cardAlt:#132A5C;--c-border:rgba(234,240,255,0.12);
-    --c-gold:#F39200;--c-goldLight:#FDB402;--c-green:#3CBE7C;--c-greenLight:#57C99A;
-    --c-rust:#FF7A59;--c-rustLight:#FF7A59;--c-text:#EEF2FB;--c-muted:#9AA7C7;
-    --c-navy:#011B45;
-  }
+html,body{ background:var(--c-bg); color-scheme: dark; }
+body{ margin:0; -webkit-font-smoothing:antialiased; }
+input,select,textarea,button{ font-family:Figtree,sans-serif; }
+input::placeholder,textarea::placeholder{ color:#7F8BA8; }
+select option{ background:#0A1F45; color:#F4F6FB; }
+/* Mise en page : barre du bas sur telephone, menu lateral sur ordinateur */
+.kbs-side{ display:none; }
+.kbs-bottom{ display:grid; }
+.kbs-main{ padding-bottom:110px; }
+@media (min-width: 900px){
+  .kbs-side{ display:flex; }
+  .kbs-bottom{ display:none; }
+  .kbs-main{ padding-bottom:40px; }
+  .kbs-mobile-only{ display:none !important; }
 }
-body{ background:var(--c-bg); }`;
+.kbs-grid2{ display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
+.kbs-grid4{ display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
+@media (min-width: 700px){ .kbs-grid4{ grid-template-columns:repeat(4,minmax(0,1fr)); } .kbs-prod{ grid-template-columns:repeat(3,minmax(0,1fr)) !important; } }
+@media (min-width: 1100px){ .kbs-prod{ grid-template-columns:repeat(4,minmax(0,1fr)) !important; } }
+.kbs-tap{ transition: transform .12s ease, background .15s ease; }
+.kbs-tap:active{ transform: scale(.97); }
+/* Impression : seul le ticket de caisse sort (imprimante thermique 80 mm) */
+@media print{
+  body *{ visibility:hidden !important; }
+  .kbs-print, .kbs-print *{ visibility:visible !important; }
+  .kbs-print{ position:absolute; left:0; top:0; width:80mm; border-radius:0 !important; }
+}`;
 
 /* Codes d'accès par défaut — modifiables ensuite directement dans l'onglet Administration */
 const DEFAULT_CODES = {
@@ -142,7 +161,7 @@ function NotifDot({ count }) {
       position: "absolute", top: -5, right: -5, minWidth: 17, height: 17, padding: "0 4px",
       borderRadius: 999, background: "#E5484D", color: "#FFFFFF",
       fontSize: 10, fontWeight: 800, lineHeight: "17px", textAlign: "center",
-      boxShadow: "0 0 0 2px var(--c-bg)", fontFamily: "Nunito, sans-serif",
+      boxShadow: "0 0 0 2px var(--c-bg)", fontFamily: "Figtree, sans-serif",
     }}>{count > 9 ? "9+" : count}</span>
   );
 }
@@ -925,7 +944,7 @@ function diagnosticFormComplete(f) {
 /* ---------------------------------- UI PRIMITIVES ---------------------------------- */
 function Card({ children, style }) {
   return (
-    <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: 16, ...style }}>
+    <div style={{ background: C.card, border: "1px solid rgba(255,255,255,0.04)", borderRadius: 20, padding: 16, ...style }}>
       {children}
     </div>
   );
@@ -934,7 +953,7 @@ function Eyebrow({ children }) {
   return <div style={{ color: C.gold, fontSize: 11, letterSpacing: 1.5, fontWeight: 700, textTransform: "uppercase", marginBottom: 6 }}>{children}</div>;
 }
 function H2({ children, style }) {
-  return <h2 style={{ fontFamily: "Baloo 2, sans-serif", fontSize: 20, fontWeight: 800, color: C.text, margin: "0 0 12px", ...style }}>{children}</h2>;
+  return <h2 style={{ fontFamily: "Archivo, sans-serif", fontSize: 20, fontWeight: 800, color: C.text, margin: "0 0 12px", ...style }}>{children}</h2>;
 }
 function fcfa(n) { return `${Number(n || 0).toLocaleString("fr-FR")} FCFA`; }
 
@@ -1292,8 +1311,8 @@ function NotificationBanner() {
 
 /* ---------------------------------- MAIN APP ---------------------------------- */
 export default function App() {
-  const [category, setCategory] = useState("pilotage");
-  const [tab, setTab] = useState("objectif");
+  const [tab, setTab] = useState("accueil");
+  const [currentUser, setCurrentUser] = useState(null); // membre connecte (id) ou null
   const [loaded, setLoaded] = useState(false);
   const [unlocked, setUnlocked] = useState(false);
 
@@ -1313,6 +1332,8 @@ export default function App() {
   const [devis, setDevis] = useState([]);
   const [factures, setFactures] = useState([]);
   const [content, setContent] = useState({}); // textes modifies (Marketing / Ressources)
+  const [products, setProducts] = useState([]);     // catalogue produits + stock
+  const [stockMoves, setStockMoves] = useState([]); // historique des entrees / sorties
   const [factureDraft, setFactureDraft] = useState(null); // facture pre-remplie (depuis CRM ou devis)
   const [guides, setGuides] = useState(DEFAULT_GUIDES);
   const [formationLiens, setFormationLiens] = useState({});
@@ -1358,6 +1379,8 @@ export default function App() {
         devis: await L("kbs:devis", []),
         factures: await L("kbs:factures", []),
         content: await L("kbs:content", {}),
+        products: await L("kbs:products", []),
+        stockMoves: await L("kbs:stockMoves", []),
         guides: await L("kbs:guides", DEFAULT_GUIDES),
         formationLiens: await L("kbs:formationLiens", {}),
         pricing: await L("kbs:pricing", DEFAULT_PRICING),
@@ -1401,6 +1424,8 @@ export default function App() {
       setDevis(d.devis || []);
       setFactures(d.factures || []);
       setContent(d.content || {});
+      setProducts(d.products || []);
+      setStockMoves(d.stockMoves || []);
       setGuides(d.guides);
       setFormationLiens(d.formationLiens);
       setPricing({ ...DEFAULT_PRICING, ...d.pricing });
@@ -1457,6 +1482,8 @@ export default function App() {
   useEffect(() => { if (loaded) persist("kbs:devis", devis); }, [devis, loaded]);
   useEffect(() => { if (loaded) persist("kbs:factures", factures); }, [factures, loaded]);
   useEffect(() => { if (loaded) persist("kbs:content", content); }, [content, loaded]);
+  useEffect(() => { if (loaded) persist("kbs:products", products); }, [products, loaded]);
+  useEffect(() => { if (loaded) persist("kbs:stockMoves", stockMoves); }, [stockMoves, loaded]);
   useEffect(() => { if (loaded) persist("kbs:guides", guides); }, [guides, loaded]);
   useEffect(() => { if (loaded) persist("kbs:formationLiens", formationLiens); }, [formationLiens, loaded]);
   useEffect(() => { if (loaded) persist("kbs:pricing", pricing); }, [pricing, loaded]);
@@ -1650,15 +1677,17 @@ export default function App() {
   }
 
   const TAB_META = {
+    vendre: { label: "Vendre", icon: ShoppingBag },
+    stock: { label: "Produits & stock", icon: Box },
     objectif: { label: "Objectif", icon: Target },
     dispos: { label: "Planning", icon: CalendarCheck },
-    kanban: { label: "Kanban", icon: LayoutGrid },
-    crm: { label: "CRM & Clients", icon: Users },
+    kanban: { label: "Tâches", icon: LayoutGrid },
+    crm: { label: "Clients & CRM", icon: Users },
     devis: { label: "Devis", icon: FileText },
     factures: { label: "Factures", icon: Receipt },
-    tresorerie: { label: "Trésorerie", icon: Banknote },
+    tresorerie: { label: "Finances", icon: Banknote },
     dettes: { label: "Dettes & Rappels", icon: AlertTriangle },
-    tarifs: { label: "Tarifs", icon: Wallet },
+    tarifs: { label: "Tarifs & services", icon: Wallet },
     cible: { label: "Cible", icon: MessageSquare },
     copywriting: { label: "Laboratoire Copywriting", icon: Flame },
     prospection: { label: "Prospection Réseaux", icon: Radar },
@@ -1680,26 +1709,36 @@ export default function App() {
     archives: { label: "Archives", icon: Archive },
   };
 
+  // Familles de modules (menu, menu lateral, sous-navigation).
   const CATEGORIES = [
-    { id: "pilotage", label: "Pilotage", icon: Target, tabs: ["objectif", "dispos", "kanban"] },
-    { id: "ventes", label: "Ventes & Finance", icon: Wallet, tabs: ["crm", "devis", "factures", "tresorerie", "dettes", "tarifs", "archives"] },
+    { id: "ventes", label: "Ventes & finances", icon: Wallet, tabs: ["vendre", "crm", "devis", "factures", "tresorerie", "dettes", "archives"] },
+    { id: "produits", label: "Produits", icon: Box, tabs: ["stock", "tarifs"] },
+    { id: "pilotage", label: "Équipe & pilotage", icon: Target, tabs: ["objectif", "kanban", "dispos"] },
     { id: "marketing", label: "Marketing", icon: Flame, tabs: ["cible", "copywriting", "prospection", "terrain"] },
     { id: "ressources", label: "Ressources", icon: Sparkles, tabs: ["outils", "academie", "plan", "liens", "formation"] },
-    { id: "admin", label: "Administration", icon: Shield, tabs: ["adminEquipe", "adminDiagnostics", "adminCodes", "adminAgence", "adminTarifs", "adminFormation", "adminCaisse", "adminRecup", "adminReset"] },
+    { id: "admin", label: "Administration", icon: Shield, tabs: ["adminEquipe", "adminAgence", "adminCodes", "adminTarifs", "adminFormation", "adminDiagnostics", "adminCaisse", "adminRecup", "adminReset"] },
   ];
+  const catOf = (t) => (CATEGORIES.find(c => c.tabs.includes(t)) || {}).id || "";
+  const category = catOf(tab);
+  // Ecran actif dans la barre du bas / le menu lateral.
+  const navActive = tab === "accueil" ? "accueil" : tab === "crm" ? "crm" : tab === "vendre" ? "vendre" : tab === "stock" ? "stock" : tab === "menu" ? "menu" : "";
+
+  function go(t) { setTab(t); try { window.scrollTo({ top: 0 }); } catch (e) {} }
 
   // Ouvre l'onglet Factures avec une facture pre-remplie.
   function openFactureDraft(draftData) {
     setFactureDraft(draftData);
-    setCategory("ventes");
-    setTab("factures");
+    go("factures");
   }
   function clientToFacture(p) {
     const prix = prixTotalOf(p) || Number(p.montant) || 0;
+    const items = (p.achats || []).length
+      ? p.achats.flatMap(a => a.items || []).map(it => ({ label: it.label, qte: it.qte, prix: it.prix }))
+      : [{ label: p.pack || "Prestation", qte: 1, prix }];
     openFactureDraft({
       linkedId: String(p.id), clientNom: clientFullName(p), whatsapp: p.whatsapp || "", email: p.email || "",
       adresse: [p.adresse, p.quartier].filter(Boolean).join(", "), objet: p.pack || "",
-      items: [{ label: p.pack || "Prestation", qte: 1, prix }],
+      items,
       // Les versements deja recus dans le CRM apparaissent comme reglements de la facture.
       paiements: paymentsOf(p).map(x => ({ ...x, mode: x.mode || "", recNumero: x.recNumero })),
     });
@@ -1710,150 +1749,186 @@ export default function App() {
     setDevis(prev => prev.map(x => x.id === d.id ? { ...x, statut: "Accepté" } : x));
   }
 
-  function selectCategory(catId) {
-    setCategory(catId);
-    const cat = CATEGORIES.find(c => c.id === catId);
-    setTab(cat.tabs[0]);
-  }
-
   // Ouvre directement le bon onglet quand l'appli est lancée depuis une notification (#tabId)
   useEffect(() => {
     if (!loaded || !unlocked) return;
     const hash = window.location.hash.replace("#", "");
-    if (!hash) return;
-    const cat = CATEGORIES.find(c => c.tabs.includes(hash));
-    if (cat) { setCategory(cat.id); setTab(hash); }
+    if (hash && (TAB_META[hash] || ["accueil", "menu"].includes(hash))) setTab(hash);
   }, [loaded, unlocked]);
 
+  const me = team.find(m => m.id === currentUser) || null;
+  const lowStock = products.filter(p => p.suiviStock !== false && Number(p.seuil) > 0 && (Number(p.stock) || 0) <= Number(p.seuil));
+  const facturesRetard = factures.filter(f => /retard/.test(factureStatut(f)));
+  const totalReste = prospects.reduce((s, p) => s + resteAPayer(p), 0);
+  const unreadOf = (tabs) => tabs.reduce((s, t) => s + (unread[t] || 0), 0);
+  const pageTitle = tab === "accueil" ? "Accueil" : tab === "menu" ? "Menu" : (TAB_META[tab] || {}).label || "";
+
+  const BOTTOM = [
+    { id: "accueil", label: "Accueil", icon: Home },
+    { id: "crm", label: "Clients", icon: Users },
+    { id: "vendre", label: "Vendre", icon: Plus, fab: true },
+    { id: "stock", label: "Stock", icon: Box },
+    { id: "menu", label: "Menu", icon: MenuIcon },
+  ];
+  const SIDE = [
+    { id: "accueil", label: "Tableau de bord", icon: Home },
+    { id: "crm", label: "Clients & CRM", icon: Users },
+    { id: "stock", label: "Produits & stock", icon: Box },
+    { id: "factures", label: "Devis & factures", icon: FileText, also: ["devis"] },
+    { id: "tresorerie", label: "Finances", icon: BarChart3, also: ["dettes", "archives"] },
+    { id: "kanban", label: "Équipe & tâches", icon: LayoutGrid, also: ["objectif", "dispos"] },
+    { id: "cible", label: "Marketing", icon: Flame, also: ["copywriting", "prospection", "terrain"] },
+    { id: "outils", label: "Ressources", icon: Sparkles, also: ["academie", "plan", "liens", "formation"] },
+    { id: "menu", label: "Tous les modules", icon: MenuIcon },
+  ];
+
   return (
-    <div style={{ minHeight: "100vh", background: C.bg, color: C.text, fontFamily: "Nunito, sans-serif" }}>
+    <div style={{ minHeight: "100vh", background: C.bg, color: C.text, fontFamily: "Figtree, sans-serif", fontSize: 14 }}>
       <style>{FONT_IMPORT}</style>
 
       {!loaded ? (
-        <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", gap: 12, alignItems: "center", justifyContent: "center", color: C.muted, fontSize: 13, padding: 24, textAlign: "center" }}>
+        <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", gap: 14, alignItems: "center", justifyContent: "center", color: C.muted, fontSize: 13, padding: 24, textAlign: "center" }}>
+          <img src={BRAND_LOGO} alt="KBS Digital Agency" style={{ width: 64, height: 64, borderRadius: "50%" }} />
           {loadError ? (<>
             <AlertTriangle size={26} color={C.rustLight} />
             <div style={{ color: C.text, maxWidth: 360 }}>{loadError}</div>
-            <button onClick={() => setLoadAttempt(n => n + 1)} style={{ ...btnGold, width: "auto", padding: "10px 18px" }}><RefreshCw size={14} /> Réessayer</button>
-          </>) : "Chargement…"}
+            <button onClick={() => setLoadAttempt(n => n + 1)} style={{ ...btnGold, width: "auto", padding: "12px 20px" }}><RefreshCw size={14} /> Réessayer</button>
+          </>) : "Chargement de KBS Gestion…"}
         </div>
       ) : !unlocked ? (
-        <LoginScreen onUnlock={() => setUnlocked(true)} codes={codes} />
+        <LoginScreen codes={codes} team={team} onUnlock={(uid) => { setCurrentUser(uid); setUnlocked(true); setTab("accueil"); }} />
       ) : (
-      <div className="kbs-shell" style={{ maxWidth: 1100, margin: "0 auto", minHeight: "100vh", borderLeft: `1px solid ${C.border}`, borderRight: `1px solid ${C.border}`, background: C.bg }}>
-      {/* HEADER */}
-      <div style={{ padding: "20px 16px 12px", borderBottom: `1px solid ${C.border}`, display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-        <div>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <img src={BRAND_LOGO} alt="KBSAUTO" style={{ width: 34, height: 34, borderRadius: 9, flexShrink: 0 }} />
-            <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
-              <span style={{ fontFamily: "Baloo 2, sans-serif", fontWeight: 800, fontSize: 22, color: C.gold }}>KBSAUTO</span>
+      <div style={{ display: "flex", minHeight: "100vh" }}>
+        {/* MENU LATERAL (ordinateur) */}
+        <aside className="kbs-side" style={{ width: 250, flexShrink: 0, background: C.surf, borderRight: `1px solid ${C.border}`, padding: "22px 14px", flexDirection: "column", gap: 3, position: "sticky", top: 0, height: "100vh", boxSizing: "border-box", overflowY: "auto" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "0 6px 14px" }}>
+            <img src={BRAND_LOGO} alt="KBS Digital Agency" style={{ width: 42, height: 42, borderRadius: "50%" }} />
+            <div>
+              <div style={{ fontFamily: "Archivo, sans-serif", fontWeight: 900, fontSize: 18 }}>KBS Gestion</div>
+              <div style={{ color: C.muted, fontSize: 11.5 }}>KBS Digital Agency</div>
             </div>
           </div>
-          <div style={{ color: C.muted, fontSize: 12.5, marginTop: 2, marginLeft: 44 }}>KBS Digital Agency — QG de l'équipe</div>
-        </div>
-        <button onClick={() => setUnlocked(false)} style={{ display: "flex", alignItems: "center", gap: 5, background: "none", border: `1px solid ${C.border}`, borderRadius: 8, color: C.muted, padding: "6px 10px", fontSize: 12, cursor: "pointer", flexShrink: 0 }}>
-          <LogOut size={13} /> Déconnexion
-        </button>
-      </div>
-
-      <NotificationBanner />
-
-      {saveError && (
-        <div style={{ background: "rgba(183,64,47,0.18)", borderBottom: `1px solid ${C.rust}`, padding: "10px 16px", display: "flex", alignItems: "center", gap: 8 }}>
-          <AlertTriangle size={15} color={C.rustLight} />
-          <div style={{ fontSize: 12, color: C.rustLight, flex: 1 }}>
-            Enregistrement échoué — tes modifications ne sont pas sauvegardées. ({saveError})
-          </div>
-          <button onClick={() => setSaveError("")} style={{ background: "none", border: "none", color: C.rustLight, cursor: "pointer" }}><X size={14} /></button>
-        </div>
-      )}
-
-      {/* CATEGORY BAR — rangee defilante avec fleches cliquables */}
-      <ScrollRow gap={10} padding="12px 12px 8px">
-        {CATEGORIES.map(c => {
-          const Icon = c.icon;
-          const active = category === c.id;
-          const catCount = c.tabs.reduce((s, t) => s + (unread[t] || 0), 0);
-          return (
-            <div key={c.id} onClick={() => selectCategory(c.id)} style={{
-              display: "flex", flexDirection: "column", alignItems: "center", gap: 6,
-              flexShrink: 0, width: 74, cursor: "pointer", scrollSnapAlign: "start",
-            }}>
-              <div style={{
-                position: "relative",
-                width: 48, height: 48, borderRadius: 14, display: "flex", alignItems: "center", justifyContent: "center",
-                background: active ? `linear-gradient(135deg, ${C.goldLight}, ${C.gold})` : C.card,
-                border: `1px solid ${active ? C.gold : C.border}`,
-                boxShadow: active ? `0 4px 14px rgba(243,146,0,0.45)` : "none",
-                transition: "all .18s ease",
-              }}>
-                <Icon size={19} color={active ? "#FFFFFF" : C.muted} />
-                {catCount > 0 && <NotifDot count={catCount} />}
-              </div>
-              <span style={{ fontSize: 10.5, fontWeight: 700, textAlign: "center", lineHeight: 1.2, color: active ? C.goldLight : C.muted }}>{c.label}</span>
-            </div>
-          );
-        })}
-      </ScrollRow>
-
-      {/* SUB-TAB BAR — tous les sous-onglets visibles d'un coup (retour a la ligne) */}
-      <div style={{ borderBottom: `1px solid ${C.border}`, padding: "6px 12px 12px" }}>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, justifyContent: "center" }}>
-          {CATEGORIES.find(c => c.id === category).tabs.map(tid => {
-            const meta = TAB_META[tid];
-            const Icon = meta.icon;
-            const active = tab === tid;
-            const tabCount = unread[tid] || 0;
+          <button onClick={() => go("vendre")} className="kbs-tap" style={{ ...btnGold, background: "linear-gradient(160deg,#FDB402,#F39200 55%,#FD5C01)", margin: "6px 0 12px", fontSize: 15 }}><Plus size={17} /> Nouvelle vente</button>
+          {SIDE.map(it => {
+            const Icon = it.icon;
+            const on = tab === it.id || (it.also || []).includes(tab);
+            const n = unreadOf([it.id, ...(it.also || [])]);
             return (
-              <div key={tid} onClick={() => setTab(tid)} style={{
-                position: "relative",
-                display: "flex", alignItems: "center", gap: 6,
-                cursor: "pointer",
-                padding: "8px 12px", borderRadius: 999,
-                border: `1px solid ${active ? C.gold : (tabCount > 0 ? C.rust : C.border)}`,
-                background: active ? "rgba(243,146,0,0.16)" : C.card,
-                transition: "all .18s ease",
-              }}>
-                <Icon size={15} color={active ? C.goldLight : C.muted} />
-                <span style={{ fontSize: 12, fontWeight: 700, textAlign: "center", lineHeight: 1.2, color: active ? C.goldLight : C.muted }}>{meta.label}</span>
-                {tabCount > 0 && <NotifDot count={tabCount} />}
-              </div>
+              <button key={it.id} onClick={() => go(it.id)} style={{ display: "flex", gap: 11, alignItems: "center", padding: "11px 12px", borderRadius: 12, border: "none", cursor: "pointer", textAlign: "left", fontWeight: 600, fontSize: 14, background: on ? "rgba(243,146,0,.14)" : "transparent", color: on ? C.goldLight : C.muted, position: "relative" }}>
+                <Icon size={19} /> {it.label}
+                {n > 0 && <span style={{ marginLeft: "auto", minWidth: 18, height: 18, borderRadius: 9, background: C.gold, color: "#011B45", fontSize: 11, fontWeight: 800, display: "grid", placeItems: "center", padding: "0 5px" }}>{n}</span>}
+              </button>
             );
           })}
-        </div>
-      </div>
+          <div style={{ marginTop: "auto", paddingTop: 12, borderTop: `1px solid ${C.border}`, display: "flex", flexDirection: "column", gap: 3 }}>
+            <button onClick={() => go("adminAgence")} style={{ display: "flex", gap: 11, alignItems: "center", padding: "11px 12px", borderRadius: 12, border: "none", cursor: "pointer", fontWeight: 600, fontSize: 14, background: category === "admin" ? "rgba(243,146,0,.14)" : "transparent", color: category === "admin" ? C.goldLight : C.muted }}><Settings size={19} /> Réglages</button>
+            <button onClick={() => setUnlocked(false)} style={{ display: "flex", gap: 11, alignItems: "center", padding: "11px 12px", borderRadius: 12, border: "none", cursor: "pointer", fontWeight: 600, fontSize: 14, background: "transparent", color: C.muted }}><LogOut size={19} /> Déconnexion{me ? ` (${me.name})` : ""}</button>
+          </div>
+        </aside>
 
-      <div className="kbs-content" style={{ padding: 16, maxWidth: 720, margin: "0 auto" }}>
-        {tab === "objectif" && <TabObjectif goal={goal} setGoal={setGoal} totalCA={totalCA} totalCommission={totalCommission} pct={pct} prospects={prospects} team={team} codes={codes} commissionRate={commissionRate} />}
-        {tab === "dispos" && <TabDispos dispos={dispos} setDispos={setDispos} team={team} />}
-        {tab === "kanban" && <TabKanban kanban={kanban} setKanban={setKanban} checks={checks} setChecks={setChecks} team={team} setTeam={setTeam} codes={codes} />}
-        {tab === "crm" && <TabCRM prospects={prospects} setProspects={setProspects} totalCA={totalCA} totalCommission={totalCommission} team={team} codes={codes} agency={agency} pricing={pricing} servicesCatalogue={servicesCatalogue} commissionRate={commissionRate} onCreateFacture={clientToFacture} />}
-        {tab === "devis" && <TabDocuments kind="devis" docs={devis} setDocs={setDevis} prospects={prospects} agency={agency} onConvert={devisToFacture} />}
-        {tab === "factures" && <TabDocuments kind="facture" docs={factures} setDocs={setFactures} prospects={prospects} agency={agency} draft={factureDraft} onDraftUsed={() => setFactureDraft(null)} />}
-        {tab === "tresorerie" && <TabTresorerie prospects={prospects} setProspects={setProspects} expenses={expenses} setExpenses={setExpenses} totalCA={totalCA} totalCommission={totalCommission} totalDepenses={totalDepenses} beneficeNet={beneficeNet} team={team} codes={codes} commissionRate={commissionRate} />}
-        {tab === "dettes" && <TabDettes dettes={dettes} setDettes={setDettes} prospects={prospects} />}
-        {tab === "tarifs" && <TabTarifs pricing={pricing} setPricing={setPricing} />}
-        {tab === "archives" && <TabArchives archives={archives} period={period} team={team} codes={codes} onDelete={deleteArchive} onUpdate={updateArchive} onCreate={(m) => restoreArchive(m, [])} />}
-        {tab === "cible" && <TabCible content={content} setContent={setContent} />}
-        {tab === "copywriting" && <TabCopywriting content={content} setContent={setContent} />}
-        {tab === "prospection" && <TabProspection prospection={prospection} setProspection={setProspection} prospects={prospects} setProspects={setProspects} team={team} pricing={pricing} allServicesFlat={allServicesFlat} content={content} setContent={setContent} />}
-        {tab === "terrain" && <TabProspectionTerrain agency={agency} content={content} setContent={setContent} />}
-        {category === "ressources" && !ressourcesUnlocked ? (
-          <Card style={{ textAlign: "center" }}>
-            <MiniUnlock code={codes.ressources} label="Section Ressources — entre le code d'accès" onUnlock={() => setRessourcesUnlocked(true)} />
-          </Card>
-        ) : (
-          <>
-            {tab === "outils" && <TabOutils content={content} setContent={setContent} />}
-            {tab === "academie" && <TabAcademie content={content} setContent={setContent} />}
-            {tab === "plan" && <TabPlan content={content} setContent={setContent} />}
-            {tab === "liens" && <TabLiens links={links} setLinks={setLinks} team={team} />}
-            {tab === "formation" && <TabFormation team={team} codes={codes} guides={guides} formationLiens={formationLiens} />}
-          </>
-        )}
-        {category === "admin" && <TabAdministration section={tab} caisse={caisse} setCaisse={setCaisse} team={team} setTeam={setTeam} codes={codes} setCodes={setCodes} onResetAll={resetAllData} onCloseMonth={closeMonthManually} onRestoreArchive={restoreArchive} currentMonth={currentMonth()} agency={agency} setAgency={setAgency} guides={guides} setGuides={setGuides} formationLiens={formationLiens} setFormationLiens={setFormationLiens} pricing={pricing} setPricing={setPricing} commissionRate={commissionRate} setCommissionRate={setCommissionRate} />}
-      </div>
+        <div className="kbs-main" style={{ flex: 1, minWidth: 0 }}>
+          {/* EN-TETE */}
+          <header style={{ position: "sticky", top: 0, zIndex: 20, background: "rgba(6,20,48,.92)", backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", borderBottom: `1px solid ${C.border}` }}>
+            <div style={{ maxWidth: 1100, margin: "0 auto", padding: "12px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
+                {tab !== "accueil" ? (
+                  <button onClick={() => go(tab === "menu" ? "accueil" : (BOTTOM.some(b => b.id === tab) ? "accueil" : "menu"))} aria-label="Retour" className="kbs-mobile-only" style={{ width: 40, height: 40, borderRadius: 13, background: C.card, border: "none", color: C.text, display: "grid", placeItems: "center", cursor: "pointer", flexShrink: 0 }}><ChevronLeft size={20} /></button>
+                ) : (
+                  <img src={BRAND_LOGO} alt="KBS Digital Agency" className="kbs-mobile-only" style={{ width: 40, height: 40, borderRadius: "50%" }} />
+                )}
+                <div style={{ minWidth: 0 }}>
+                  {tab === "accueil" && <div style={{ color: C.muted, fontSize: 12 }}>Bonjour{me ? ` ${me.name}` : ""}</div>}
+                  <div style={{ fontFamily: "Archivo, sans-serif", fontWeight: 800, fontSize: tab === "accueil" ? 19 : 21, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{tab === "accueil" ? "KBS Gestion" : pageTitle}</div>
+                </div>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <button onClick={() => go("menu")} aria-label="Tous les modules" style={{ width: 40, height: 40, borderRadius: 13, background: C.card, border: "none", color: C.text, display: "grid", placeItems: "center", cursor: "pointer", position: "relative" }}>
+                  <Bell size={19} />
+                  {Object.values(unread).some(n => n > 0) && <span style={{ position: "absolute", top: 8, right: 9, width: 9, height: 9, borderRadius: "50%", background: C.gold, boxShadow: `0 0 0 2px ${C.card}` }} />}
+                </button>
+                <button onClick={() => setUnlocked(false)} aria-label="Déconnexion" className="kbs-mobile-only" style={{ width: 40, height: 40, borderRadius: 13, background: C.card, border: "none", color: C.muted, display: "grid", placeItems: "center", cursor: "pointer" }}><LogOut size={18} /></button>
+              </div>
+            </div>
+          </header>
+
+          <NotificationBanner />
+
+          {saveError && (
+            <div style={{ background: "rgba(255,122,107,0.16)", borderBottom: `1px solid ${C.rust}`, padding: "10px 16px", display: "flex", alignItems: "center", gap: 8 }}>
+              <AlertTriangle size={15} color={C.rustLight} />
+              <div style={{ fontSize: 12.5, color: C.rustLight, flex: 1 }}>Enregistrement échoué — tes modifications ne sont pas sauvegardées. ({saveError})</div>
+              <button onClick={() => setSaveError("")} aria-label="Fermer" style={{ background: "none", border: "none", color: C.rustLight, cursor: "pointer" }}><X size={14} /></button>
+            </div>
+          )}
+
+          <div className="kbs-content" style={{ padding: 16, maxWidth: ["accueil", "vendre", "stock", "menu"].includes(tab) ? 1100 : 760, margin: "0 auto", boxSizing: "border-box" }}>
+            {/* Sous-navigation : les autres ecrans de la meme famille */}
+            {category && tab !== "vendre" && CATEGORIES.find(c => c.id === category).tabs.length > 1 && (
+              <div className="kbs-navbar" style={{ display: "flex", gap: 6, overflowX: "auto", marginBottom: 14, paddingBottom: 2 }}>
+                {CATEGORIES.find(c => c.id === category).tabs.map(tid => {
+                  const on = tab === tid;
+                  const n = unread[tid] || 0;
+                  return (
+                    <button key={tid} onClick={() => go(tid)} style={{ flex: "none", padding: "8px 13px", borderRadius: 99, border: "none", cursor: "pointer", fontWeight: 700, fontSize: 12.5, background: on ? C.text : C.card, color: on ? C.bg : C.muted, position: "relative" }}>
+                      {TAB_META[tid].label}{n > 0 && <span style={{ marginLeft: 5, color: C.gold }}>•{n}</span>}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+
+            {tab === "accueil" && <TabAccueil go={go} totalCA={totalCA} totalReste={totalReste} goal={goal} pct={pct} beneficeNet={beneficeNet} lowStock={lowStock} facturesRetard={facturesRetard} kanban={kanban} prospects={prospects} />}
+            {tab === "menu" && <TabMenu go={go} categories={CATEGORIES} meta={TAB_META} unread={unread} me={me} onLogout={() => setUnlocked(false)} />}
+            {tab === "vendre" && <TabVendre products={products} setProducts={setProducts} stockMoves={stockMoves} setStockMoves={setStockMoves} prospects={prospects} setProspects={setProspects} team={team} currentUser={currentUser} codes={codes} agency={agency} go={go} />}
+            {tab === "stock" && <TabStock products={products} setProducts={setProducts} stockMoves={stockMoves} setStockMoves={setStockMoves} team={team} currentUser={currentUser} />}
+            {tab === "objectif" && <TabObjectif goal={goal} setGoal={setGoal} totalCA={totalCA} totalCommission={totalCommission} pct={pct} prospects={prospects} team={team} codes={codes} commissionRate={commissionRate} />}
+            {tab === "dispos" && <TabDispos dispos={dispos} setDispos={setDispos} team={team} />}
+            {tab === "kanban" && <TabKanban kanban={kanban} setKanban={setKanban} checks={checks} setChecks={setChecks} team={team} setTeam={setTeam} codes={codes} />}
+            {tab === "crm" && <TabCRM prospects={prospects} setProspects={setProspects} totalCA={totalCA} totalCommission={totalCommission} team={team} codes={codes} agency={agency} pricing={pricing} servicesCatalogue={servicesCatalogue} commissionRate={commissionRate} onCreateFacture={clientToFacture} />}
+            {tab === "devis" && <TabDocuments kind="devis" docs={devis} setDocs={setDevis} prospects={prospects} agency={agency} onConvert={devisToFacture} />}
+            {tab === "factures" && <TabDocuments kind="facture" docs={factures} setDocs={setFactures} prospects={prospects} agency={agency} draft={factureDraft} onDraftUsed={() => setFactureDraft(null)} />}
+            {tab === "tresorerie" && <TabTresorerie prospects={prospects} setProspects={setProspects} expenses={expenses} setExpenses={setExpenses} totalCA={totalCA} totalCommission={totalCommission} totalDepenses={totalDepenses} beneficeNet={beneficeNet} team={team} codes={codes} commissionRate={commissionRate} />}
+            {tab === "dettes" && <TabDettes dettes={dettes} setDettes={setDettes} prospects={prospects} />}
+            {tab === "tarifs" && <TabTarifs pricing={pricing} setPricing={setPricing} />}
+            {tab === "archives" && <TabArchives archives={archives} period={period} team={team} codes={codes} onDelete={deleteArchive} onUpdate={updateArchive} onCreate={(m) => restoreArchive(m, [])} />}
+            {tab === "cible" && <TabCible content={content} setContent={setContent} />}
+            {tab === "copywriting" && <TabCopywriting content={content} setContent={setContent} />}
+            {tab === "prospection" && <TabProspection prospection={prospection} setProspection={setProspection} prospects={prospects} setProspects={setProspects} team={team} pricing={pricing} allServicesFlat={allServicesFlat} content={content} setContent={setContent} />}
+            {tab === "terrain" && <TabProspectionTerrain agency={agency} content={content} setContent={setContent} />}
+            {category === "ressources" && !ressourcesUnlocked ? (
+              <Card style={{ textAlign: "center" }}>
+                <MiniUnlock code={codes.ressources} label="Section Ressources — entre le code d'accès" onUnlock={() => setRessourcesUnlocked(true)} />
+              </Card>
+            ) : (
+              <>
+                {tab === "outils" && <TabOutils content={content} setContent={setContent} />}
+                {tab === "academie" && <TabAcademie content={content} setContent={setContent} />}
+                {tab === "plan" && <TabPlan content={content} setContent={setContent} />}
+                {tab === "liens" && <TabLiens links={links} setLinks={setLinks} team={team} />}
+                {tab === "formation" && <TabFormation team={team} codes={codes} guides={guides} formationLiens={formationLiens} />}
+              </>
+            )}
+            {category === "admin" && <TabAdministration section={tab} caisse={caisse} setCaisse={setCaisse} team={team} setTeam={setTeam} codes={codes} setCodes={setCodes} onResetAll={resetAllData} onCloseMonth={closeMonthManually} onRestoreArchive={restoreArchive} currentMonth={currentMonth()} agency={agency} setAgency={setAgency} guides={guides} setGuides={setGuides} formationLiens={formationLiens} setFormationLiens={setFormationLiens} pricing={pricing} setPricing={setPricing} commissionRate={commissionRate} setCommissionRate={setCommissionRate} />}
+          </div>
+        </div>
+
+        {/* BARRE DU BAS (telephone) */}
+        <nav className="kbs-bottom" aria-label="Navigation principale" style={{ position: "fixed", left: 0, right: 0, bottom: 0, zIndex: 30, height: 78, background: C.surf, borderTop: `1px solid ${C.border}`, gridTemplateColumns: "repeat(5, minmax(0, 1fr))", alignItems: "end", padding: "0 6px calc(12px + env(safe-area-inset-bottom))" }}>
+          {BOTTOM.map(b => {
+            const Icon = b.icon;
+            const on = navActive === b.id;
+            const n = b.id === "crm" ? unreadOf(["crm"]) : b.id === "menu" ? Object.entries(unread).filter(([k]) => !["crm"].includes(k)).reduce((s, [, v]) => s + (v || 0), 0) : 0;
+            return (
+              <button key={b.id} onClick={() => go(b.id)} aria-label={b.label} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 5, fontSize: 11, fontWeight: 700, color: on ? C.gold : C.muted, background: "none", border: "none", cursor: "pointer", position: "relative", padding: 0 }}>
+                {b.fab ? (
+                  <span style={{ width: 60, height: 60, borderRadius: "50%", background: "linear-gradient(160deg,#FDB402,#F39200 55%,#FD5C01)", color: "#011B45", display: "grid", placeItems: "center", marginTop: -28, boxShadow: `0 0 0 6px ${C.bg}, 0 10px 24px rgba(243,146,0,.45)` }}><Icon size={26} strokeWidth={2.4} /></span>
+                ) : <Icon size={21} />}
+                {b.label}
+                {n > 0 && <span style={{ position: "absolute", top: -2, left: "58%", minWidth: 16, height: 16, borderRadius: 8, background: C.gold, color: "#011B45", fontSize: 10, fontWeight: 800, display: "grid", placeItems: "center", padding: "0 4px" }}>{n}</span>}
+              </button>
+            );
+          })}
+        </nav>
       </div>
       )}
     </div>
@@ -1861,33 +1936,57 @@ export default function App() {
 }
 
 /* ---------------------------------- LOGIN SCREEN ---------------------------------- */
-function LoginScreen({ onUnlock, codes }) {
+function LoginScreen({ onUnlock, codes, team }) {
+  const [who, setWho] = useState(team[0]?.id || "");
   const [pwd, setPwd] = useState("");
   const [error, setError] = useState(false);
+  const member = team.find(m => m.id === who);
 
+  // Entree avec : le code personnel du membre choisi, le code general de l'outil, ou le code maitre.
   function tryUnlock() {
-    if (codeMatches(pwd, codes.app)) { setError(false); onUnlock(); }
-    else { setError(true); }
+    const ok = (member && codeMatchesStrict(pwd, member.code)) || codeMatches(pwd, codes.app);
+    if (ok) { setError(false); onUnlock(member ? member.id : null); }
+    else setError(true);
   }
+  const initials = (n) => { const w = (n || "?").trim().split(/\s+/); return (w.length > 1 ? w[0][0] + w[1][0] : w[0].slice(0, 2)).toUpperCase(); };
 
   return (
-    <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 24 }}>
-      <img src={BRAND_LOGO} alt="KBSAUTO" style={{ width: 76, height: 76, borderRadius: 18, marginBottom: 16, boxShadow: `0 0 0 1px ${C.border}` }} />
-      <div style={{ fontFamily: "Baloo 2, sans-serif", fontWeight: 800, fontSize: 22, marginBottom: 2 }}>KBSAUTO</div>
-      <div style={{ color: C.muted, fontSize: 12.5, marginBottom: 16 }}>KBS Digital Agency</div>
-      <div style={{ color: C.muted, fontSize: 13, marginBottom: 20, textAlign: "center" }}>Accès réservé à l'équipe — entre le code d'accès</div>
-      <div style={{ width: "100%", maxWidth: 280, display: "flex", flexDirection: "column", gap: 10 }}>
-        <input
-          type="password"
-          placeholder="Code d'accès"
-          value={pwd}
+    <div style={{ minHeight: "100vh", display: "flex", justifyContent: "center", padding: "48px 22px 30px", boxSizing: "border-box", position: "relative", overflow: "hidden" }}>
+      <div aria-hidden="true" style={{ position: "absolute", width: 460, height: 460, borderRadius: "50%", border: "1px solid rgba(243,146,0,.22)", right: -240, top: -210 }} />
+      <div style={{ width: "100%", maxWidth: 400, position: "relative" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+          <img src={BRAND_LOGO} alt="KBS Digital Agency" style={{ width: 64, height: 64, borderRadius: "50%", boxShadow: "0 10px 30px rgba(243,146,0,.25)" }} />
+          <div>
+            <div style={{ fontFamily: "Archivo, sans-serif", fontWeight: 900, fontSize: 26, letterSpacing: "-0.02em" }}>KBS Gestion</div>
+            <div style={{ color: C.muted, fontSize: 12.5, marginTop: 3 }}>Ventes, stock, clients et équipe de l'agence</div>
+          </div>
+        </div>
+
+        <div style={{ fontFamily: "Archivo, sans-serif", fontWeight: 800, fontSize: 22, marginTop: 38 }}>Qui se connecte ?</div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 8, marginTop: 14 }}>
+          {team.map(m => (
+            <button key={m.id} onClick={() => { setWho(m.id); setError(false); }} style={{ background: who === m.id ? "rgba(243,146,0,.10)" : C.card, border: `1.5px solid ${who === m.id ? C.gold : "transparent"}`, borderRadius: 16, padding: "10px 4px", display: "flex", flexDirection: "column", alignItems: "center", gap: 6, color: C.text, fontWeight: 600, fontSize: 12, cursor: "pointer", minWidth: 0 }}>
+              <span style={{ width: 38, height: 38, borderRadius: "50%", display: "grid", placeItems: "center", fontFamily: "Archivo, sans-serif", fontWeight: 800, fontSize: 14, color: "#011B45", background: m.color || C.gold }}>{initials(m.name)}</span>
+              <span style={{ maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.name}</span>
+            </button>
+          ))}
+        </div>
+
+        <label htmlFor="kbs-code" style={{ display: "block", fontSize: 12.5, color: C.muted, fontWeight: 600, margin: "22px 0 6px" }}>Ton code personnel{member ? ` (${member.name})` : ""}</label>
+        <input id="kbs-code" type="password" autoFocus placeholder="Code" value={pwd}
           onChange={e => { setPwd(e.target.value); setError(false); }}
           onKeyDown={e => { if (e.key === "Enter") tryUnlock(); }}
-          style={inputStyle}
-          autoFocus
-        />
-        {error && <div style={{ color: C.rustLight, fontSize: 12 }}>Code incorrect. Demande-le au CEO.</div>}
-        <button onClick={tryUnlock} style={btnGold}><Lock size={14} /> Déverrouiller</button>
+          style={{ ...inputStyle, height: 52, fontSize: 18, letterSpacing: 4, textAlign: "center", fontWeight: 700 }} />
+        {error && <div style={{ color: C.rustLight, fontSize: 12.5, marginTop: 6 }}>Code incorrect. Demande-le au CEO.</div>}
+        <div style={{ color: C.muted, textAlign: "center", fontSize: 12, marginTop: 8 }}>Chaque membre a son code. Le code général de l'outil et le code maître fonctionnent aussi.</div>
+
+        <button onClick={tryUnlock} className="kbs-tap" style={{ ...btnGold, width: "100%", height: 54, marginTop: 20, fontSize: 15 }}>Entrer</button>
+
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 24, background: "rgba(92,192,140,.12)", borderRadius: 16, padding: "12px 14px", fontSize: 12.5, lineHeight: 1.45 }}>
+          <Shield size={20} color={C.greenLight} style={{ flexShrink: 0 }} />
+          <span>Données sauvegardées chaque jour. Si la connexion coupe, rien n'est effacé.</span>
+        </div>
+        <div style={{ color: C.muted, textAlign: "center", fontSize: 11.5, marginTop: 28 }}>KBS Digital Agency · Bamako</div>
       </div>
     </div>
   );
@@ -1914,7 +2013,7 @@ function TabObjectif({ goal, setGoal, totalCA, totalCommission, pct, prospects, 
               strokeDasharray={circ} strokeDashoffset={circ - (pct / 100) * circ} strokeLinecap="round" />
           </svg>
           <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
-            <div style={{ fontFamily: "Baloo 2, sans-serif", fontSize: 30, fontWeight: 800, color: C.goldLight }}>{pct}%</div>
+            <div style={{ fontFamily: "Archivo, sans-serif", fontSize: 30, fontWeight: 800, color: C.goldLight }}>{pct}%</div>
             <div style={{ fontSize: 11, color: C.muted }}>de l'objectif</div>
           </div>
         </div>
@@ -2019,6 +2118,17 @@ function TabCRM({ prospects, setProspects, totalCA, totalCommission, team, codes
     setEditingHist(null);
   }
   const totalReste = prospects.reduce((s, p) => s + resteAPayer(p), 0);
+  const [q, setQ] = useState("");
+  const [filtre, setFiltre] = useState("Tous");
+  const FILTRES = {
+    "Tous": () => true,
+    "Doivent": p => resteAPayer(p) > 0,
+    "Prospects": p => !(Number(p.montant) > 0) && p.statut !== "Perdu",
+    "Payés": p => Number(p.montant) > 0 && resteAPayer(p) === 0,
+    "Ventes caisse": p => p.source === "vente",
+  };
+  const shown = prospects.filter(FILTRES[filtre]).filter(p => !q.trim() ||
+    `${p.prenom || ""} ${p.nom || ""} ${p.whatsapp || ""} ${p.pack || ""}`.toLowerCase().includes(q.trim().toLowerCase()));
   function addHistorique(id) {
     if (!noteText.trim()) return;
     setProspects(prospects.map(p => p.id === id
@@ -2097,23 +2207,35 @@ function TabCRM({ prospects, setProspects, totalCA, totalCommission, team, codes
       <div style={{ display: "flex", gap: 10 }}>
         <Card style={{ flex: 1, textAlign: "center" }}>
           <div style={{ fontSize: 11, color: C.muted }}>CA encaissé</div>
-          <div style={{ fontWeight: 800, fontFamily: "Baloo 2, sans-serif", color: C.goldLight }}>{fcfa(totalCA)}</div>
+          <div style={{ fontWeight: 800, fontFamily: "Archivo, sans-serif", color: C.goldLight }}>{fcfa(totalCA)}</div>
         </Card>
         <Card style={{ flex: 1, textAlign: "center" }}>
           <div style={{ fontSize: 11, color: C.muted }}>Total commissions (par membre)</div>
-          <div style={{ fontWeight: 800, fontFamily: "Baloo 2, sans-serif", color: C.greenLight }}>{fcfa(totalCommission)}</div>
+          <div style={{ fontWeight: 800, fontFamily: "Archivo, sans-serif", color: C.greenLight }}>{fcfa(totalCommission)}</div>
         </Card>
       </div>
       {totalReste > 0 && (
         <Card style={{ textAlign: "center", borderColor: C.gold }}>
           <div style={{ fontSize: 11, color: C.muted }}>Reste à encaisser (avances en cours)</div>
-          <div style={{ fontWeight: 800, fontFamily: "Baloo 2, sans-serif", color: C.goldLight }}>{fcfa(totalReste)}</div>
+          <div style={{ fontWeight: 800, fontFamily: "Archivo, sans-serif", color: C.goldLight }}>{fcfa(totalReste)}</div>
         </Card>
       )}
 
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, height: 48, borderRadius: 15, border: `1px solid ${C.border}`, background: C.surf, padding: "0 14px", color: C.muted }}>
+          <Search size={18} />
+          <input placeholder="Nom, WhatsApp ou service" value={q} onChange={e => setQ(e.target.value)} style={{ flex: 1, background: "transparent", border: "none", color: C.text, fontSize: 14, outline: "none", minWidth: 0 }} />
+        </div>
+        <div className="kbs-navbar" style={{ display: "flex", gap: 6, overflowX: "auto", marginBottom: 4 }}>
+          {Object.keys(FILTRES).map(f => (
+            <button key={f} onClick={() => setFiltre(f)} style={{ flex: "none", padding: "8px 12px", borderRadius: 99, border: "none", cursor: "pointer", fontWeight: 700, fontSize: 12, background: filtre === f ? C.text : C.card, color: filtre === f ? C.bg : C.muted }}>
+              {f}<b style={{ marginLeft: 5, color: C.gold }}>{prospects.filter(FILTRES[f]).length}</b>
+            </button>
+          ))}
+        </div>
         {prospects.length === 0 && <div style={{ color: C.muted, fontSize: 13, textAlign: "center", padding: 20 }}>Aucun client pour l'instant. Ajoute le premier ci-dessus.</div>}
-        {prospects.slice().reverse().map(p => {
+        {prospects.length > 0 && shown.length === 0 && <div style={{ color: C.muted, fontSize: 13, textAlign: "center", padding: 20 }}>Aucun client ne correspond.</div>}
+        {shown.slice().reverse().map(p => {
           const expanded = expandedId === p.id;
           const editing = editingId === p.id;
           const payStatus = paymentStatus(p);
@@ -2893,11 +3015,11 @@ function AdminDiagnostics() {
       <div style={{ display: "flex", gap: 10 }}>
         <Card style={{ flex: 1, textAlign: "center" }}>
           <div style={{ fontSize: 11, color: C.muted }}>Coût ce mois-ci</div>
-          <div style={{ fontWeight: 800, fontFamily: "Baloo 2, sans-serif", color: C.goldLight }}>≈ {monthCost.toFixed(2)} $</div>
+          <div style={{ fontWeight: 800, fontFamily: "Archivo, sans-serif", color: C.goldLight }}>≈ {monthCost.toFixed(2)} $</div>
         </Card>
         <Card style={{ flex: 1, textAlign: "center" }}>
           <div style={{ fontSize: 11, color: C.muted }}>Coût cumulé</div>
-          <div style={{ fontWeight: 800, fontFamily: "Baloo 2, sans-serif", color: C.greenLight }}>≈ {totalCost.toFixed(2)} $</div>
+          <div style={{ fontWeight: 800, fontFamily: "Archivo, sans-serif", color: C.greenLight }}>≈ {totalCost.toFixed(2)} $</div>
         </Card>
       </div>
 
@@ -3089,11 +3211,11 @@ function TabDocuments({ kind, docs, setDocs, prospects, agency, onConvert, draft
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
         <Card style={{ textAlign: "center" }}>
           <div style={{ fontSize: 11, color: C.muted }}>{isDevis ? "Total des devis" : "Total facturé"} ({docs.length})</div>
-          <div style={{ fontWeight: 800, fontFamily: "Baloo 2, sans-serif", color: C.goldLight }}>{fcfa(sumTotal)}</div>
+          <div style={{ fontWeight: 800, fontFamily: "Archivo, sans-serif", color: C.goldLight }}>{fcfa(sumTotal)}</div>
         </Card>
         <Card style={{ textAlign: "center" }}>
           <div style={{ fontSize: 11, color: C.muted }}>{isDevis ? "Devis acceptés" : "Reste à encaisser"}</div>
-          <div style={{ fontWeight: 800, fontFamily: "Baloo 2, sans-serif", color: isDevis ? C.greenLight : (sumReste > 0 ? C.rustLight : C.greenLight) }}>
+          <div style={{ fontWeight: 800, fontFamily: "Archivo, sans-serif", color: isDevis ? C.greenLight : (sumReste > 0 ? C.rustLight : C.greenLight) }}>
             {isDevis ? docs.filter(d => d.statut === "Accepté").length : fcfa(sumReste)}
           </div>
         </Card>
@@ -3511,7 +3633,7 @@ function TabDispos({ dispos, setDispos, team }) {
 
         <Card style={{ textAlign: "center" }}>
           <div style={{ fontSize: 12, color: C.muted }}>Jours disponibles — {viewingMember?.name}</div>
-          <div style={{ fontFamily: "Baloo 2, sans-serif", fontSize: 22, fontWeight: 800, color: C.text }}>{availableCount} / 30</div>
+          <div style={{ fontFamily: "Archivo, sans-serif", fontSize: 22, fontWeight: 800, color: C.text }}>{availableCount} / 30</div>
         </Card>
 
         <Card>
@@ -3589,7 +3711,7 @@ function GroupTitle({ title, expanded, onToggle, actions }) {
   return (
     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 6 }}>
       <button onClick={onToggle} style={{ background: "none", border: "none", color: C.text, flex: 1, display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer", padding: 0, textAlign: "left" }}>
-        <span style={{ fontFamily: "Baloo 2, sans-serif", fontWeight: 700, fontSize: 14 }}>{title}</span>
+        <span style={{ fontFamily: "Archivo, sans-serif", fontWeight: 700, fontSize: 14 }}>{title}</span>
         {expanded ? <ChevronDown size={16} color={C.gold} /> : <ChevronRight size={16} color={C.gold} />}
       </button>
       {actions}
@@ -3879,19 +4001,19 @@ function TabTresorerie({ prospects, setProspects, expenses, setExpenses, totalCA
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
           <Card style={{ textAlign: "center" }}>
             <div style={{ fontSize: 11, color: C.muted }}>Revenus (CRM)</div>
-            <div style={{ fontWeight: 800, fontFamily: "Baloo 2, sans-serif", color: C.goldLight, fontSize: 15 }}>{fcfa(totalCA)}</div>
+            <div style={{ fontWeight: 800, fontFamily: "Archivo, sans-serif", color: C.goldLight, fontSize: 15 }}>{fcfa(totalCA)}</div>
           </Card>
           <Card style={{ textAlign: "center" }}>
             <div style={{ fontSize: 11, color: C.muted }}>Total commissions (par membre)</div>
-            <div style={{ fontWeight: 800, fontFamily: "Baloo 2, sans-serif", color: C.rustLight, fontSize: 15 }}>{fcfa(totalCommission)}</div>
+            <div style={{ fontWeight: 800, fontFamily: "Archivo, sans-serif", color: C.rustLight, fontSize: 15 }}>{fcfa(totalCommission)}</div>
           </Card>
           <Card style={{ textAlign: "center" }}>
             <div style={{ fontSize: 11, color: C.muted }}>Dépenses</div>
-            <div style={{ fontWeight: 800, fontFamily: "Baloo 2, sans-serif", color: C.rustLight, fontSize: 15 }}>{fcfa(totalDepenses)}</div>
+            <div style={{ fontWeight: 800, fontFamily: "Archivo, sans-serif", color: C.rustLight, fontSize: 15 }}>{fcfa(totalDepenses)}</div>
           </Card>
           <Card style={{ textAlign: "center" }}>
             <div style={{ fontSize: 11, color: C.muted }}>Bénéfice net</div>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 4, fontWeight: 800, fontFamily: "Baloo 2, sans-serif", color: beneficeNet >= 0 ? C.greenLight : C.rustLight, fontSize: 15 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 4, fontWeight: 800, fontFamily: "Archivo, sans-serif", color: beneficeNet >= 0 ? C.greenLight : C.rustLight, fontSize: 15 }}>
               {beneficeNet >= 0 ? <TrendingUp size={14} /> : <TrendingDown size={14} />} {fcfa(beneficeNet)}
             </div>
           </Card>
@@ -4017,11 +4139,11 @@ function TabDettes({ dettes, setDettes, prospects }) {
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
         <Card style={{ textAlign: "center" }}>
           <div style={{ fontSize: 11, color: C.muted }}>Total dû (impayé)</div>
-          <div style={{ fontWeight: 800, fontFamily: "Baloo 2, sans-serif", color: C.goldLight, fontSize: 15 }}>{fcfa(totalDu)}</div>
+          <div style={{ fontWeight: 800, fontFamily: "Archivo, sans-serif", color: C.goldLight, fontSize: 15 }}>{fcfa(totalDu)}</div>
         </Card>
         <Card style={{ textAlign: "center" }}>
           <div style={{ fontSize: 11, color: C.muted }}>Échéances en retard</div>
-          <div style={{ fontWeight: 800, fontFamily: "Baloo 2, sans-serif", color: enRetard > 0 ? C.rustLight : C.greenLight, fontSize: 15 }}>{enRetard}</div>
+          <div style={{ fontWeight: 800, fontFamily: "Archivo, sans-serif", color: enRetard > 0 ? C.rustLight : C.greenLight, fontSize: 15 }}>{enRetard}</div>
         </Card>
       </div>
 
@@ -4165,7 +4287,7 @@ function TabProspection({ prospection, setProspection, prospects, setProspects, 
           render={(s, i, actions) => (
             <Card>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8, gap: 6 }}>
-                <span style={{ fontFamily: "Baloo 2, sans-serif", fontWeight: 700, fontSize: 13.5, color: C.gold, flex: 1 }}>{s.stage}</span>
+                <span style={{ fontFamily: "Archivo, sans-serif", fontWeight: 700, fontSize: 13.5, color: C.gold, flex: 1 }}>{s.stage}</span>
                 <button onClick={() => copyScript(s.stage, s.text)} style={{ ...iconBtn, display: "flex", alignItems: "center", gap: 5 }}>
                   <Copy size={12} /> {copiedStage === s.stage ? "Copié !" : "Copier"}
                 </button>
@@ -4731,7 +4853,7 @@ function TabFormation({ team, codes, guides, formationLiens }) {
           ))}
         </div>
       )}
-      <div style={{ fontFamily: "Baloo 2, sans-serif", fontWeight: 800, fontSize: 17, marginBottom: 2 }}>Formation de {labels[activeId] || "—"}</div>
+      <div style={{ fontFamily: "Archivo, sans-serif", fontWeight: 800, fontSize: 17, marginBottom: 2 }}>Formation de {labels[activeId] || "—"}</div>
       <div style={{ color: C.muted, fontSize: 12, marginBottom: 12 }}>KBS DIGITAL AGENCY</div>
 
       <div style={{ display: "flex", gap: 6, marginBottom: 14 }}>
@@ -5088,7 +5210,7 @@ function TabArchives({ archives, period, team, codes, onDelete, onUpdate, onCrea
           <Card key={key}>
             <div onClick={() => setOpenId(open ? null : key)} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer" }}>
               <div>
-                <div style={{ fontFamily: "Baloo 2, sans-serif", fontWeight: 800, fontSize: 16, textTransform: "capitalize" }}>{monthLabel(a.period)}</div>
+                <div style={{ fontFamily: "Archivo, sans-serif", fontWeight: 800, fontSize: 16, textTransform: "capitalize" }}>{monthLabel(a.period)}</div>
                 <div style={{ fontSize: 11.5, color: C.muted }}>CA {fcfa(a.totalCA)} · {clients.length} client{clients.length > 1 ? "s" : ""}</div>
               </div>
               {open ? <ChevronDown size={18} color={C.gold} /> : <ChevronRight size={18} color={C.gold} />}
@@ -5358,7 +5480,7 @@ function ArchStat({ label, value, color }) {
   return (
     <div style={{ background: C.cardAlt, borderRadius: 10, padding: "8px 10px" }}>
       <div style={{ fontSize: 10.5, color: C.muted }}>{label}</div>
-      <div style={{ fontFamily: "Baloo 2, sans-serif", fontWeight: 800, fontSize: 14, color }}>{value}</div>
+      <div style={{ fontFamily: "Archivo, sans-serif", fontWeight: 800, fontSize: 14, color }}>{value}</div>
     </div>
   );
 }
@@ -5748,7 +5870,7 @@ function TabAdministration({ section, caisse, setCaisse, team, setTeam, codes, s
           <Card key={m.id} style={{ marginBottom: 14 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
               <div style={{ width: 10, height: 10, borderRadius: 999, background: m.color }} />
-              <div style={{ fontFamily: "Baloo 2, sans-serif", fontWeight: 800, fontSize: 15, color: C.goldLight }}>{m.name}</div>
+              <div style={{ fontFamily: "Archivo, sans-serif", fontWeight: 800, fontSize: 15, color: C.goldLight }}>{m.name}</div>
               <div style={{ fontSize: 11, color: C.muted }}>· code {m.code}</div>
             </div>
 
@@ -5857,7 +5979,912 @@ function TabAdministration({ section, caisse, setCaisse, team, setTeam, codes, s
   );
 }
 
+/* ====================================================================================
+   KBS GESTION — nouveaux ecrans (maquette validee) : Accueil, Menu, Stock, Vendre
+   ==================================================================================== */
+
+/* Petites briques visuelles communes aux nouveaux ecrans */
+const tint = {
+  or: { background: "rgba(243,146,0,.16)", color: "#FDB402" },
+  ok: { background: "rgba(92,192,140,.16)", color: "#6FD39E" },
+  ko: { background: "rgba(255,122,107,.15)", color: "#FF8F82" },
+  bl: { background: "rgba(127,179,232,.16)", color: "#9CC6F0" },
+  gr: { background: "rgba(169,180,208,.14)", color: "#C9D2E8" },
+};
+function Pill({ kind = "gr", children }) {
+  return <span style={{ ...tint[kind], fontSize: 11, fontWeight: 700, padding: "3px 9px", borderRadius: 99, whiteSpace: "nowrap" }}>{children}</span>;
+}
+function IconTile({ kind = "or", children, size = 40 }) {
+  return <span style={{ ...tint[kind], width: size, height: size, borderRadius: 12, display: "grid", placeItems: "center", flexShrink: 0 }}>{children}</span>;
+}
+function Hero({ children, style }) {
+  return (
+    <div style={{ borderRadius: 24, padding: 18, background: "linear-gradient(150deg,#173571,#0A1F45)", position: "relative", overflow: "hidden", ...style }}>
+      <div aria-hidden="true" style={{ position: "absolute", width: 230, height: 230, borderRadius: "50%", border: "1px solid rgba(243,146,0,.28)", right: -95, top: -120, pointerEvents: "none" }} />
+      <div style={{ position: "relative" }}>{children}</div>
+    </div>
+  );
+}
+function Seg({ options, value, onChange }) {
+  return (
+    <div style={{ display: "flex", background: C.card, borderRadius: 14, padding: 4 }}>
+      {options.map(([v, l]) => (
+        <button key={v} onClick={() => onChange(v)} style={{ flex: 1, textAlign: "center", padding: "9px 4px", borderRadius: 11, fontWeight: 700, fontSize: 12.5, border: "none", cursor: "pointer", background: value === v ? C.card2 : "transparent", color: value === v ? C.text : C.muted }}>{l}</button>
+      ))}
+    </div>
+  );
+}
+function Chips({ options, value, onChange }) {
+  return (
+    <div className="kbs-navbar" style={{ display: "flex", gap: 6, overflowX: "auto", flexWrap: "nowrap" }}>
+      {options.map(o => (
+        <button key={o} onClick={() => onChange(o)} style={{ flex: "none", padding: "8px 13px", borderRadius: 99, border: "none", cursor: "pointer", fontWeight: 700, fontSize: 12.5, background: value === o ? C.text : C.card, color: value === o ? C.bg : C.muted }}>{o}</button>
+      ))}
+    </div>
+  );
+}
+function SectionTitle({ children, action, onAction }) {
+  return (
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", margin: "20px 0 10px" }}>
+      <span style={{ fontFamily: "Archivo, sans-serif", fontSize: 16, fontWeight: 700 }}>{children}</span>
+      {action && <button onClick={onAction} style={{ background: "none", border: "none", color: C.gold, fontWeight: 700, fontSize: 12.5, cursor: "pointer" }}>{action}</button>}
+    </div>
+  );
+}
+function ListRow({ children, onClick, style }) {
+  const Tag = onClick ? "button" : "div";
+  return (
+    <Tag onClick={onClick} className={onClick ? "kbs-tap" : undefined} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 14px", background: C.card, borderRadius: 16, border: "none", color: C.text, width: "100%", textAlign: "left", cursor: onClick ? "pointer" : "default", boxSizing: "border-box", ...style }}>{children}</Tag>
+  );
+}
+const numFr = (n) => String(Math.round(Number(n) || 0)).replace(/\B(?=(\d{3})+(?!\d))/g, " ");
+
+/* ---------------------------------- ACCUEIL ---------------------------------- */
+function TabAccueil({ go, totalCA, totalReste, goal, pct, beneficeNet, lowStock, facturesRetard, kanban, prospects }) {
+  const vendu = totalCA + totalReste;
+  const encPct = vendu > 0 ? Math.round((totalCA / vendu) * 100) : 100;
+  const tasks = (kanban.doing || []).length + (kanban.review || []).length + (kanban.todo || []).length;
+  const toValidate = (kanban.review || []).length;
+  const debtors = prospects.filter(p => resteAPayer(p) > 0).length;
+  const resteFactures = facturesRetard.reduce((s, f) => s + docTotals(f).reste, 0);
+  const QA = [
+    { id: "vendre", label: "Vendre", icon: ShoppingBag },
+    { id: "crm", label: "Client", icon: UserPlus },
+    { id: "factures", label: "Facture", icon: Receipt },
+    { id: "tresorerie", label: "Dépense", icon: Wallet },
+  ];
+  return (
+    <div>
+      <Hero>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <span style={{ color: C.muted, fontSize: 12.5, fontWeight: 600 }}>Chiffre d'affaires du mois</span>
+          <Pill kind={encPct >= 80 ? "ok" : "or"}>{encPct} % encaissé</Pill>
+        </div>
+        <div style={{ fontFamily: "Archivo, sans-serif", fontSize: 32, fontWeight: 800, marginTop: 8, letterSpacing: "-0.02em" }}>{numFr(vendu)} <span style={{ fontSize: 14, color: C.muted, fontWeight: 600 }}>FCFA</span></div>
+        <div style={{ height: 9, borderRadius: 9, background: "rgba(255,143,130,.35)", overflow: "hidden", display: "flex", marginTop: 14 }}><i style={{ display: "block", width: `${encPct}%`, background: C.greenLight }} /></div>
+        <div style={{ display: "flex", justifyContent: "space-between", marginTop: 9, fontSize: 12.5 }}>
+          <span><b style={{ color: C.greenLight }}>{numFr(totalCA)}</b> <span style={{ color: C.muted }}>encaissé</span></span>
+          <span><b style={{ color: C.rustLight }}>{numFr(totalReste)}</b> <span style={{ color: C.muted }}>reste dehors</span></span>
+        </div>
+        <div style={{ display: "flex", gap: 12, marginTop: 14 }}>
+          <button onClick={() => go("objectif")} style={{ flex: 1, background: "rgba(255,255,255,.06)", borderRadius: 14, padding: "10px 12px", border: "none", color: C.text, textAlign: "left", cursor: "pointer" }}>
+            <div style={{ color: C.muted, fontSize: 11.5 }}>Objectif du mois</div>
+            <div style={{ fontFamily: "Archivo, sans-serif", fontWeight: 800, fontSize: 16, marginTop: 3 }}>{pct} %</div>
+            <div style={{ height: 5, borderRadius: 5, background: "rgba(169,180,208,.2)", marginTop: 6 }}><i style={{ display: "block", width: `${Math.min(100, pct)}%`, height: "100%", borderRadius: 5, background: C.gold }} /></div>
+            <div style={{ color: C.muted, fontSize: 10.5, marginTop: 4 }}>sur {fcfa(goal)}</div>
+          </button>
+          <button onClick={() => go("tresorerie")} style={{ flex: 1, background: "rgba(255,255,255,.06)", borderRadius: 14, padding: "10px 12px", border: "none", color: C.text, textAlign: "left", cursor: "pointer" }}>
+            <div style={{ color: C.muted, fontSize: 11.5 }}>Bénéfice net</div>
+            <div style={{ fontFamily: "Archivo, sans-serif", fontWeight: 800, fontSize: 16, marginTop: 3, color: beneficeNet >= 0 ? C.greenLight : C.rustLight }}>{numFr(beneficeNet)}</div>
+            <div style={{ color: C.muted, fontSize: 11, marginTop: 4 }}>après commissions et dépenses</div>
+          </button>
+        </div>
+      </Hero>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 8, marginTop: 18 }}>
+        {QA.map(q => {
+          const Icon = q.icon;
+          return (
+            <button key={q.id} onClick={() => go(q.id)} className="kbs-tap" style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 7, fontSize: 12, fontWeight: 600, color: C.text, background: "none", border: "none", cursor: "pointer" }}>
+              <span style={{ width: 56, height: 56, borderRadius: 18, background: C.card, display: "grid", placeItems: "center", color: C.goldLight }}><Icon size={22} /></span>
+              {q.label}
+            </button>
+          );
+        })}
+      </div>
+
+      <SectionTitle>À traiter</SectionTitle>
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        {lowStock.length > 0 && (
+          <ListRow onClick={() => go("stock")}>
+            <IconTile kind="ko"><AlertTriangle size={19} /></IconTile>
+            <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontWeight: 700 }}>{lowStock.length} produit{lowStock.length > 1 ? "s" : ""} presque épuisé{lowStock.length > 1 ? "s" : ""}</div><div style={{ color: C.muted, fontSize: 12, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{lowStock.map(p => p.nom).join(", ")}</div></div>
+            <Pill kind="ko">Stock</Pill>
+          </ListRow>
+        )}
+        {debtors > 0 && (
+          <ListRow onClick={() => go("crm")}>
+            <IconTile kind="or"><Clock size={19} /></IconTile>
+            <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontWeight: 700 }}>{debtors} client{debtors > 1 ? "s" : ""} doi{debtors > 1 ? "vent" : "t"} encore payer</div><div style={{ color: C.muted, fontSize: 12 }}>{fcfa(totalReste)} à encaisser</div></div>
+            <Pill kind="or">Relancer</Pill>
+          </ListRow>
+        )}
+        {facturesRetard.length > 0 && (
+          <ListRow onClick={() => go("factures")}>
+            <IconTile kind="ko"><Receipt size={19} /></IconTile>
+            <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontWeight: 700 }}>{facturesRetard.length} facture{facturesRetard.length > 1 ? "s" : ""} en retard</div><div style={{ color: C.muted, fontSize: 12 }}>{fcfa(resteFactures)} à relancer</div></div>
+            <Pill kind="ko">Factures</Pill>
+          </ListRow>
+        )}
+        <ListRow onClick={() => go("kanban")}>
+          <IconTile kind="ok"><CheckCircle size={19} /></IconTile>
+          <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontWeight: 700 }}>{tasks} tâche{tasks > 1 ? "s" : ""} de l'équipe</div><div style={{ color: C.muted, fontSize: 12 }}>{toValidate > 0 ? `dont ${toValidate} à valider` : "rien à valider pour l'instant"}</div></div>
+          <Pill kind="gr">Tâches</Pill>
+        </ListRow>
+      </div>
+    </div>
+  );
+}
+
+/* ---------------------------------- MENU ---------------------------------- */
+function TabMenu({ go, categories, meta, unread, me, onLogout }) {
+  const kinds = { ventes: "or", produits: "bl", pilotage: "ok", marketing: "or", ressources: "ok", admin: "bl" };
+  return (
+    <div>
+      {me && (
+        <div style={{ display: "flex", alignItems: "center", gap: 10, background: C.card, borderRadius: 16, padding: "10px 12px" }}>
+          <span style={{ width: 36, height: 36, borderRadius: "50%", background: me.color || C.gold, color: "#011B45", display: "grid", placeItems: "center", fontFamily: "Archivo, sans-serif", fontWeight: 800, fontSize: 13 }}>{(me.name || "?").slice(0, 2).toUpperCase()}</span>
+          <div style={{ flex: 1 }}><div style={{ fontWeight: 700 }}>{me.name}</div><div style={{ color: C.muted, fontSize: 12 }}>{me.role}</div></div>
+          <button onClick={onLogout} style={{ ...iconBtn, display: "flex", alignItems: "center", gap: 5, padding: "8px 11px" }}><LogOut size={14} /> Déconnexion</button>
+        </div>
+      )}
+      {categories.map(cat => (
+        <div key={cat.id}>
+          <div style={{ fontSize: 12, color: C.muted, fontWeight: 800, letterSpacing: ".06em", textTransform: "uppercase", margin: "18px 0 8px 2px" }}>{cat.label}</div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(104px, 1fr))", gap: 8 }}>
+            {cat.tabs.map(t => {
+              const m = meta[t]; if (!m) return null;
+              const Icon = m.icon;
+              const n = unread[t] || 0;
+              return (
+                <button key={t} onClick={() => go(t)} className="kbs-tap" style={{ background: C.card, borderRadius: 16, padding: "13px 6px", display: "flex", flexDirection: "column", alignItems: "center", gap: 8, textAlign: "center", fontSize: 12, fontWeight: 600, lineHeight: 1.25, color: C.text, border: "none", cursor: "pointer", position: "relative" }}>
+                  <IconTile kind={kinds[cat.id]}><Icon size={19} /></IconTile>
+                  {m.label}
+                  {n > 0 && <span style={{ position: "absolute", top: 8, right: 8, minWidth: 18, height: 18, borderRadius: 9, background: C.gold, color: "#011B45", fontSize: 10.5, fontWeight: 800, display: "grid", placeItems: "center", padding: "0 4px" }}>{n}</span>}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/* ---------------------------------- PRODUITS : outils ---------------------------------- */
+const PRODUCT_CATEGORIES = ["Matériel", "Formation", "Service", "Digital"];
+const PRODUCT_UNITS = ["Pièce", "Carton", "Sac", "Lot", "Kg", "Litre", "Séance", "Heure", "Mois"];
+function productIcon(p, size = 20) {
+  const c = (p && p.categorie) || "";
+  if (c === "Formation") return <BookOpen size={size} />;
+  if (c === "Service") return <Sparkles size={size} />;
+  if (c === "Digital") return <FileText size={size} />;
+  if (c === "Matériel") return <Package size={size} />;
+  return <Tag size={size} />;
+}
+function productKind(p) {
+  const c = (p && p.categorie) || "";
+  return c === "Formation" ? "ok" : c === "Service" ? "or" : c === "Digital" ? "bl" : c === "Matériel" ? "or" : "gr";
+}
+const hasStock = (p) => p && p.suiviStock !== false;
+// Etat du stock : Epuise / Bas / Moyen / OK, ou Service (pas de stock).
+function stockState(p) {
+  if (!hasStock(p)) return { label: "Service", kind: "gr", pct: 100 };
+  const st = Number(p.stock) || 0, seuil = Number(p.seuil) || 0;
+  const pct = Math.max(4, Math.min(100, seuil > 0 ? (st / (seuil * 3)) * 100 : 100));
+  if (st <= 0) return { label: "Épuisé", kind: "ko", pct: 4 };
+  if (seuil > 0 && st <= seuil) return { label: "Bas", kind: "ko", pct };
+  if (seuil > 0 && st <= seuil * 2) return { label: "Moyen", kind: "or", pct };
+  return { label: "OK", kind: "ok", pct };
+}
+function ProductThumb({ p, size = 42, radius = 12 }) {
+  if (p && p.photo) return <img src={p.photo} alt="" style={{ width: size, height: size, borderRadius: radius, objectFit: "cover", flexShrink: 0 }} />;
+  return <span style={{ ...tint[productKind(p)], width: size, height: size, borderRadius: radius, display: "grid", placeItems: "center", flexShrink: 0 }}>{productIcon(p, Math.round(size * 0.45))}</span>;
+}
+// Photo de produit reduite (max 360 px, JPEG) pour rester legere en base.
+function resizePhoto(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = reject;
+    reader.onload = () => {
+      const img = new Image();
+      img.onerror = reject;
+      img.onload = () => {
+        const scale = Math.min(1, 360 / Math.max(img.width, img.height));
+        const cv = document.createElement("canvas");
+        cv.width = Math.round(img.width * scale); cv.height = Math.round(img.height * scale);
+        cv.getContext("2d").drawImage(img, 0, 0, cv.width, cv.height);
+        resolve(cv.toDataURL("image/jpeg", 0.82));
+      };
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+// Un mouvement de stock : met a jour la quantite du produit et garde une trace.
+function stockMove({ products, setProducts, setStockMoves, productId, delta, type, motif, by, ref, setTo }) {
+  const p = products.find(x => x.id === productId);
+  if (!p) return;
+  const before = Number(p.stock) || 0;
+  const after = setTo != null ? Number(setTo) : before + Number(delta);
+  setProducts(prev => prev.map(x => x.id === productId ? { ...x, stock: after } : x));
+  setStockMoves(prev => [...prev, {
+    id: Date.now() + Math.random(), date: new Date().toISOString(), productId, productName: p.nom,
+    type, delta: after - before, before, after, motif: motif || "", by: by || "", ref: ref || "",
+  }]);
+}
+
+/* Lecteur de code-barres par la camera (si le telephone le permet), sinon saisie. */
+function BarcodeScanner({ onCode, onClose }) {
+  const videoRef = useRef(null);
+  const [msg, setMsg] = useState("Place le code-barres devant la caméra…");
+  useEffect(() => {
+    let stream, stop = false, timer;
+    (async () => {
+      if (!("BarcodeDetector" in window) || !navigator.mediaDevices) { setMsg("Ce téléphone ne permet pas le scan par caméra. Tape le code ou utilise un lecteur de code-barres."); return; }
+      try {
+        const det = new window.BarcodeDetector();
+        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+        if (videoRef.current) { videoRef.current.srcObject = stream; await videoRef.current.play(); }
+        const tick = async () => {
+          if (stop || !videoRef.current) return;
+          try {
+            const codes = await det.detect(videoRef.current);
+            if (codes && codes[0]) { onCode(codes[0].rawValue); return; }
+          } catch (e) { /* image pas prete */ }
+          timer = setTimeout(tick, 250);
+        };
+        tick();
+      } catch (e) { setMsg("Caméra indisponible : autorise l'accès à la caméra, ou tape le code."); }
+    })();
+    return () => { stop = true; clearTimeout(timer); if (stream) stream.getTracks().forEach(t => t.stop()); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  return (
+    <div style={{ position: "fixed", inset: 0, zIndex: 60, background: "rgba(1,6,13,.86)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 20, gap: 14 }}>
+      <video ref={videoRef} muted playsInline style={{ width: "100%", maxWidth: 420, borderRadius: 20, background: "#000", aspectRatio: "4 / 3", objectFit: "cover" }} />
+      <div style={{ color: C.text, fontSize: 13, textAlign: "center", maxWidth: 360 }}>{msg}</div>
+      <button onClick={onClose} style={{ ...btnGold, width: 200 }}>Fermer</button>
+    </div>
+  );
+}
+
+/* ---------------------------------- STOCK ---------------------------------- */
+const MOVE_MOTIFS = {
+  entree: ["Achat fournisseur", "Retour client", "Correction"],
+  sortie: ["Casse", "Perte", "Usage interne", "Cadeau / échantillon", "Correction"],
+};
+function emptyProduct() {
+  return { nom: "", categorie: PRODUCT_CATEGORIES[0], codeBarre: "", unite: PRODUCT_UNITS[0], prixAchat: "", prixVente: "", stock: "", seuil: "", fournisseur: "", suiviStock: true, photo: "" };
+}
+
+function TabStock({ products, setProducts, stockMoves, setStockMoves, team, currentUser }) {
+  const [seg, setSeg] = useState("produits");
+  const [view, setView] = useState("list");      // list | form | move
+  const [form, setForm] = useState(emptyProduct());
+  const [editingId, setEditingId] = useState(null);
+  const [search, setSearch] = useState("");
+  const [cat, setCat] = useState("Tous");
+  const [mv, setMv] = useState({ type: "entree", productId: "", qte: 1, motif: MOVE_MOTIFS.entree[0], note: "" });
+  const [counts, setCounts] = useState({});
+  const by = (team.find(m => m.id === currentUser) || {}).name || "";
+
+  const physical = products.filter(hasStock);
+  const valeur = physical.reduce((s, p) => s + (Number(p.stock) || 0) * (Number(p.prixAchat) || 0), 0);
+  const aRacheter = physical.filter(p => ["Bas", "Épuisé"].includes(stockState(p).label));
+  const cats = ["Tous", ...Array.from(new Set([...PRODUCT_CATEGORIES, ...products.map(p => p.categorie).filter(Boolean)]))];
+  const list = products.filter(p => (cat === "Tous" || p.categorie === cat) &&
+    (!search.trim() || `${p.nom} ${p.codeBarre || ""} ${p.fournisseur || ""}`.toLowerCase().includes(search.trim().toLowerCase())))
+    .slice().sort((a, b) => (stockState(a).kind === "ko" ? 0 : 1) - (stockState(b).kind === "ko" ? 0 : 1) || a.nom.localeCompare(b.nom));
+
+  function openNew() { setEditingId(null); setForm(emptyProduct()); setView("form"); }
+  function openEdit(p) { setEditingId(p.id); setForm({ ...emptyProduct(), ...p, stock: p.stock ?? "" }); setView("form"); }
+  function saveProduct() {
+    if (!form.nom.trim()) { window.alert("Indique le nom du produit."); return; }
+    if (!(Number(form.prixVente) >= 0) || form.prixVente === "") { window.alert("Indique le prix de vente."); return; }
+    const clean = { ...form, nom: form.nom.trim(), prixAchat: Number(form.prixAchat) || 0, prixVente: Number(form.prixVente) || 0, seuil: Number(form.seuil) || 0 };
+    if (editingId) {
+      const old = products.find(p => p.id === editingId);
+      const newStock = Number(form.stock) || 0;
+      setProducts(products.map(p => p.id === editingId ? { ...p, ...clean, stock: old.stock } : p));
+      // Un changement de quantite passe par un mouvement « Correction » (trace gardee).
+      if (hasStock(clean) && newStock !== (Number(old.stock) || 0)) {
+        stockMove({ products: products.map(p => p.id === editingId ? { ...p, ...clean, stock: old.stock } : p), setProducts, setStockMoves, productId: editingId, setTo: newStock, type: "inventaire", motif: "Correction (fiche produit)", by });
+      }
+    } else {
+      const id = Date.now();
+      const st = hasStock(clean) ? Number(form.stock) || 0 : 0;
+      setProducts([...products, { ...clean, id, stock: st, createdAt: new Date().toISOString() }]);
+      if (st > 0) setStockMoves(prev => [...prev, { id: id + 1, date: new Date().toISOString(), productId: id, productName: clean.nom, type: "entree", delta: st, before: 0, after: st, motif: "Stock de départ", by }]);
+    }
+    setView("list");
+  }
+  function deleteProduct(p) {
+    if (!confirmDelete(`le produit « ${p.nom} »`)) return;
+    setProducts(products.filter(x => x.id !== p.id));
+    if (view === "form") setView("list");
+  }
+  function openMove(type, productId) {
+    setMv({ type, productId: productId || (physical[0] && physical[0].id) || "", qte: type === "inventaire" ? 0 : 1, motif: type === "inventaire" ? "Inventaire" : MOVE_MOTIFS[type][0], note: "" });
+    setView("move");
+  }
+  function saveMove() {
+    const p = products.find(x => String(x.id) === String(mv.productId));
+    if (!p) { window.alert("Choisis un produit."); return; }
+    const q = Number(mv.qte) || 0;
+    if (mv.type !== "inventaire" && q <= 0) { window.alert("Indique une quantité."); return; }
+    const motif = [mv.motif, mv.note.trim()].filter(Boolean).join(" — ");
+    if (mv.type === "inventaire") stockMove({ products, setProducts, setStockMoves, productId: p.id, setTo: q, type: "inventaire", motif, by });
+    else stockMove({ products, setProducts, setStockMoves, productId: p.id, delta: mv.type === "entree" ? q : -q, type: mv.type, motif, by });
+    setView("list"); setSeg("mouvements");
+  }
+  function deleteMove(m) {
+    if (!confirmDelete("ce mouvement (la quantité du produit sera corrigée)")) return;
+    setProducts(products.map(p => p.id === m.productId ? { ...p, stock: (Number(p.stock) || 0) - (Number(m.delta) || 0) } : p));
+    setStockMoves(stockMoves.filter(x => x.id !== m.id));
+  }
+  function editMoveNote(m) {
+    const v = window.prompt("Motif du mouvement :", m.motif || "");
+    if (v == null) return;
+    setStockMoves(stockMoves.map(x => x.id === m.id ? { ...x, motif: v } : x));
+  }
+  function applyInventory() {
+    const entries = Object.entries(counts).filter(([, v]) => v !== "" && v != null);
+    if (!entries.length) return;
+    if (!window.confirm(`Enregistrer l'inventaire de ${entries.length} produit(s) ? Les quantités seront remplacées par celles comptées.`)) return;
+    let cur = products;
+    const moves = [];
+    entries.forEach(([pid, v]) => {
+      const p = cur.find(x => String(x.id) === pid); if (!p) return;
+      const after = Number(v) || 0, before = Number(p.stock) || 0;
+      if (after === before) return;
+      cur = cur.map(x => x.id === p.id ? { ...x, stock: after } : x);
+      moves.push({ id: Date.now() + Math.random(), date: new Date().toISOString(), productId: p.id, productName: p.nom, type: "inventaire", delta: after - before, before, after, motif: "Inventaire", by });
+    });
+    setProducts(cur); setStockMoves(prev => [...prev, ...moves]); setCounts({});
+    window.alert(`Inventaire enregistré : ${moves.length} correction(s).`);
+  }
+
+  /* ---- Formulaire produit ---- */
+  if (view === "form") {
+    const marge = (Number(form.prixVente) || 0) - (Number(form.prixAchat) || 0);
+    const margePct = Number(form.prixVente) > 0 ? Math.round(marge / Number(form.prixVente) * 100) : 0;
+    const F = (k) => ({ value: form[k] ?? "", onChange: e => setForm({ ...form, [k]: e.target.value }) });
+    const lbl = { display: "block", fontSize: 12, color: C.muted, marginBottom: 5, fontWeight: 600 };
+    return (
+      <div style={{ maxWidth: 560, margin: "0 auto" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
+          <button onClick={() => setView("list")} aria-label="Retour" style={{ width: 40, height: 40, borderRadius: 13, background: C.card, border: "none", color: C.text, display: "grid", placeItems: "center", cursor: "pointer" }}><ChevronLeft size={20} /></button>
+          <div style={{ fontFamily: "Archivo, sans-serif", fontSize: 21, fontWeight: 800, flex: 1 }}>{editingId ? "Modifier le produit" : "Nouveau produit"}</div>
+          {editingId && <EditDeleteButtons onDelete={() => deleteProduct(products.find(p => p.id === editingId))} />}
+        </div>
+        <div style={{ display: "flex", gap: 14, alignItems: "flex-end" }}>
+          <label style={{ width: 78, height: 78, borderRadius: 20, border: `1.5px dashed ${C.muted}`, display: "grid", placeItems: "center", color: C.muted, flexShrink: 0, cursor: "pointer", overflow: "hidden" }} aria-label="Photo du produit">
+            {form.photo ? <img src={form.photo} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <Camera size={26} />}
+            <input type="file" accept="image/*" style={{ display: "none" }} onChange={e => { const f = e.target.files && e.target.files[0]; if (f) resizePhoto(f).then(url => setForm(x => ({ ...x, photo: url }))); e.target.value = ""; }} />
+          </label>
+          <div style={{ flex: 1 }}><label style={lbl}>Nom du produit *</label><input placeholder="Ex : Ring light LED 18 pouces" {...F("nom")} style={inputStyle} /></div>
+        </div>
+        {form.photo && <button onClick={() => setForm({ ...form, photo: "" })} style={{ ...iconBtn, marginTop: 6 }}>Retirer la photo</button>}
+
+        <label style={{ ...lbl, marginTop: 12 }}>Catégorie</label>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          {Array.from(new Set([...PRODUCT_CATEGORIES, ...products.map(p => p.categorie).filter(Boolean)])).map(c => (
+            <button key={c} onClick={() => setForm({ ...form, categorie: c })} style={{ padding: "7px 12px", borderRadius: 99, border: "none", cursor: "pointer", fontWeight: 700, fontSize: 12, background: form.categorie === c ? C.text : C.card, color: form.categorie === c ? C.bg : C.muted }}>{c}</button>
+          ))}
+          <button onClick={() => { const v = window.prompt("Nom de la nouvelle catégorie :"); if (v && v.trim()) setForm({ ...form, categorie: v.trim() }); }} style={{ padding: "7px 12px", borderRadius: 99, border: "none", cursor: "pointer", fontWeight: 700, fontSize: 12, background: C.card, color: C.goldLight }}>+ Nouvelle</button>
+        </div>
+
+        <div style={{ display: "flex", gap: 8, marginTop: 12, background: C.card, borderRadius: 14, padding: 4 }}>
+          {[[true, "Produit avec stock"], [false, "Service (sans stock)"]].map(([v, l]) => (
+            <button key={l} onClick={() => setForm({ ...form, suiviStock: v })} style={{ flex: 1, padding: "9px 4px", borderRadius: 11, border: "none", cursor: "pointer", fontWeight: 700, fontSize: 12.5, background: (form.suiviStock !== false) === v ? C.card2 : "transparent", color: (form.suiviStock !== false) === v ? C.text : C.muted }}>{l}</button>
+          ))}
+        </div>
+
+        <div className="kbs-grid2" style={{ marginTop: 12 }}>
+          <div><label style={lbl}>Code-barres</label><input placeholder="Facultatif" {...F("codeBarre")} style={inputStyle} /></div>
+          <div><label style={lbl}>Unité</label><select {...F("unite")} style={inputStyle}>{PRODUCT_UNITS.map(u => <option key={u} value={u}>{u}</option>)}</select></div>
+          <div><label style={lbl}>Prix d'achat (FCFA)</label><input type="number" inputMode="numeric" {...F("prixAchat")} style={inputStyle} /></div>
+          <div><label style={lbl}>Prix de vente (FCFA) *</label><input type="number" inputMode="numeric" {...F("prixVente")} style={inputStyle} /></div>
+        </div>
+        {Number(form.prixVente) > 0 && (
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 12, ...tint.ok, borderRadius: 15, padding: "11px 14px", fontSize: 13 }}>
+            <BarChart3 size={19} />
+            <span style={{ color: C.text }}>Bénéfice : <b style={{ color: C.greenLight }}>{fcfa(marge)}</b> par {String(form.unite || "pièce").toLowerCase()} · marge {margePct} %</span>
+          </div>
+        )}
+        {form.suiviStock !== false && (
+          <div className="kbs-grid2" style={{ marginTop: 12 }}>
+            <div><label style={lbl}>{editingId ? "Quantité en stock" : "Stock de départ"}</label><input type="number" inputMode="numeric" {...F("stock")} style={inputStyle} /></div>
+            <div><label style={lbl}>Alerte sous</label><input type="number" inputMode="numeric" {...F("seuil")} style={inputStyle} /></div>
+          </div>
+        )}
+        <label style={{ ...lbl, marginTop: 12 }}>Fournisseur</label>
+        <input placeholder="Facultatif" {...F("fournisseur")} style={inputStyle} />
+        <button onClick={saveProduct} className="kbs-tap" style={{ ...btnGold, width: "100%", height: 54, marginTop: 18 }}><Save size={17} /> Enregistrer le produit</button>
+      </div>
+    );
+  }
+
+  /* ---- Mouvement de stock ---- */
+  if (view === "move") {
+    const p = products.find(x => String(x.id) === String(mv.productId));
+    const st = p ? Number(p.stock) || 0 : 0;
+    const q = Number(mv.qte) || 0;
+    const after = mv.type === "inventaire" ? q : mv.type === "entree" ? st + q : st - q;
+    const recent = stockMoves.filter(m => p && m.productId === p.id).slice(-4).reverse();
+    return (
+      <div style={{ maxWidth: 560, margin: "0 auto" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
+          <button onClick={() => setView("list")} aria-label="Retour" style={{ width: 40, height: 40, borderRadius: 13, background: C.card, border: "none", color: C.text, display: "grid", placeItems: "center", cursor: "pointer" }}><ChevronLeft size={20} /></button>
+          <div style={{ fontFamily: "Archivo, sans-serif", fontSize: 21, fontWeight: 800 }}>Mouvement de stock</div>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 8 }}>
+          {[["entree", "Entrée", ArrowDownToLine, C.greenLight], ["sortie", "Sortie", ArrowUpFromLine, C.rustLight], ["inventaire", "Inventaire", ClipboardList, "#9CC6F0"]].map(([t, l, Icon, col]) => (
+            <button key={t} onClick={() => setMv({ ...mv, type: t, qte: t === "inventaire" ? st : 1, motif: t === "inventaire" ? "Inventaire" : MOVE_MOTIFS[t][0] })} style={{ background: mv.type === t ? "rgba(243,146,0,.10)" : C.card, border: `1.5px solid ${mv.type === t ? C.gold : "transparent"}`, borderRadius: 16, padding: "12px 6px", display: "flex", flexDirection: "column", alignItems: "center", gap: 7, color: C.text, fontWeight: 600, fontSize: 12.5, cursor: "pointer" }}>
+              <Icon size={20} color={col} />{l}
+            </button>
+          ))}
+        </div>
+        <div style={{ fontSize: 12.5, color: C.muted, fontWeight: 600, margin: "16px 0 8px 2px" }}>Produit</div>
+        <select value={mv.productId} onChange={e => { const np = products.find(x => String(x.id) === e.target.value); setMv({ ...mv, productId: e.target.value, qte: mv.type === "inventaire" ? (Number(np && np.stock) || 0) : mv.qte }); }} style={inputStyle}>
+          {physical.map(x => <option key={x.id} value={x.id}>{x.nom} — {Number(x.stock) || 0} en stock</option>)}
+        </select>
+        <div style={{ fontSize: 12.5, color: C.muted, fontWeight: 600, margin: "16px 0 8px 2px" }}>{mv.type === "inventaire" ? "Quantité comptée" : mv.type === "entree" ? "Quantité reçue" : "Quantité sortie"}</div>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: C.card, borderRadius: 18, padding: 10 }}>
+          <button onClick={() => setMv({ ...mv, qte: Math.max(0, q - 1) })} aria-label="Diminuer" style={{ width: 48, height: 48, borderRadius: 14, background: C.card2, color: C.text, border: "none", display: "grid", placeItems: "center", cursor: "pointer" }}><Minus size={20} /></button>
+          <div style={{ textAlign: "center" }}>
+            <input type="number" inputMode="numeric" value={mv.qte} onChange={e => setMv({ ...mv, qte: e.target.value })} aria-label="Quantité" style={{ width: 110, textAlign: "center", background: "transparent", border: "none", color: C.text, fontFamily: "Archivo, sans-serif", fontSize: 30, fontWeight: 800 }} />
+            <div style={{ color: after < 0 ? C.rustLight : C.muted, fontSize: 12 }}>nouveau stock : {after}</div>
+          </div>
+          <button onClick={() => setMv({ ...mv, qte: q + 1 })} aria-label="Augmenter" style={{ width: 48, height: 48, borderRadius: 14, background: C.gold, color: "#011B45", border: "none", display: "grid", placeItems: "center", cursor: "pointer" }}><Plus size={20} /></button>
+        </div>
+        {mv.type !== "inventaire" && (<>
+          <div style={{ fontSize: 12.5, color: C.muted, fontWeight: 600, margin: "16px 0 8px 2px" }}>Motif</div>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            {MOVE_MOTIFS[mv.type].map(m => <button key={m} onClick={() => setMv({ ...mv, motif: m })} style={{ padding: "8px 12px", borderRadius: 99, border: "none", cursor: "pointer", fontWeight: 700, fontSize: 12.5, background: mv.motif === m ? C.text : C.card, color: mv.motif === m ? C.bg : C.muted }}>{m}</button>)}
+          </div>
+        </>)}
+        <input placeholder="Note (facultatif : fournisseur, n° de bon…)" value={mv.note} onChange={e => setMv({ ...mv, note: e.target.value })} style={{ ...inputStyle, marginTop: 10 }} />
+        {recent.length > 0 && (<>
+          <div style={{ fontSize: 12.5, color: C.muted, fontWeight: 600, margin: "16px 0 8px 2px" }}>Derniers mouvements</div>
+          <div style={{ background: C.card, borderRadius: 16, padding: "4px 14px" }}>
+            {recent.map((m, i) => (
+              <div key={m.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 0", fontSize: 12.5, borderTop: i ? `1px solid ${C.border}` : "none" }}>
+                <b style={{ color: m.delta < 0 ? C.rustLight : C.greenLight, width: 38 }}>{m.delta > 0 ? "+" : ""}{m.delta}</b>
+                <span style={{ flex: 1 }}>{m.motif}{m.by ? ` · ${m.by}` : ""}</span>
+                <span style={{ color: C.muted }}>{frDate(m.date)}</span>
+              </div>
+            ))}
+          </div>
+        </>)}
+        <button onClick={saveMove} className="kbs-tap" style={{ ...btnGold, width: "100%", height: 54, marginTop: 18 }}><CheckCircle size={17} /> Valider {mv.type === "entree" ? "l'entrée" : mv.type === "sortie" ? "la sortie" : "l'inventaire"}</button>
+      </div>
+    );
+  }
+
+  /* ---- Liste ---- */
+  return (
+    <div>
+      <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginBottom: 12 }}>
+        <button onClick={() => openMove("entree")} disabled={!physical.length} style={{ ...iconBtn, display: "flex", alignItems: "center", gap: 6, padding: "10px 13px", color: C.text, background: C.card, border: "none", fontWeight: 700 }}><Truck size={16} /> Entrée / sortie</button>
+        <button onClick={openNew} className="kbs-tap" style={{ ...btnGold, padding: "10px 14px" }}><Plus size={16} /> Nouveau produit</button>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 8 }}>
+        <div style={{ background: C.card, borderRadius: 16, padding: "11px 12px" }}><div style={{ color: C.muted, fontSize: 11.5 }}>Valeur du stock</div><div style={{ fontFamily: "Archivo, sans-serif", fontWeight: 800, fontSize: 17, marginTop: 4 }}>{numFr(valeur)}</div></div>
+        <div style={{ background: C.card, borderRadius: 16, padding: "11px 12px" }}><div style={{ color: C.muted, fontSize: 11.5 }}>Produits</div><div style={{ fontFamily: "Archivo, sans-serif", fontWeight: 800, fontSize: 17, marginTop: 4 }}>{products.length}</div></div>
+        <div style={{ background: C.card, borderRadius: 16, padding: "11px 12px" }}><div style={{ color: C.muted, fontSize: 11.5 }}>À racheter</div><div style={{ fontFamily: "Archivo, sans-serif", fontWeight: 800, fontSize: 17, marginTop: 4, color: aRacheter.length ? C.rustLight : C.greenLight }}>{aRacheter.length}</div></div>
+      </div>
+      <div style={{ marginTop: 14 }}><Seg options={[["produits", "Produits"], ["mouvements", "Mouvements"], ["inventaire", "Inventaire"]]} value={seg} onChange={setSeg} /></div>
+
+      {seg === "produits" && (<>
+        <input placeholder="Rechercher un produit, un code-barres…" value={search} onChange={e => setSearch(e.target.value)} style={{ ...inputStyle, marginTop: 12 }} />
+        <div style={{ marginTop: 10 }}><Chips options={cats} value={cat} onChange={setCat} /></div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 12 }}>
+          {products.length === 0 && (
+            <Card style={{ textAlign: "center" }}>
+              <Package size={30} color={C.muted} style={{ margin: "4px auto 8px", display: "block" }} />
+              <div style={{ fontWeight: 700 }}>Aucun produit pour l'instant</div>
+              <div style={{ color: C.muted, fontSize: 12.5, margin: "4px 0 12px" }}>Ajoute ton premier produit (matériel, formation, service…) pour pouvoir le vendre.</div>
+              <button onClick={openNew} style={{ ...btnGold, margin: "0 auto" }}><Plus size={16} /> Ajouter un produit</button>
+            </Card>
+          )}
+          {list.map(p => {
+            const s = stockState(p);
+            return (
+              <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "11px 12px", background: C.card, borderRadius: 16 }}>
+                <ProductThumb p={p} />
+                <button onClick={() => openEdit(p)} style={{ flex: 1, minWidth: 0, background: "none", border: "none", color: C.text, textAlign: "left", cursor: "pointer", padding: 0 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}><b style={{ fontSize: 13.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.nom}</b><Pill kind={s.kind}>{s.label}</Pill></div>
+                  <div style={{ color: C.muted, fontSize: 12, marginTop: 2 }}>
+                    {hasStock(p) ? `${numFr(p.stock)} ${String(p.unite || "pièce").toLowerCase()}${Number(p.stock) > 1 ? "s" : ""} · seuil ${p.seuil || 0} · ` : ""}vente {numFr(p.prixVente)}{p.prixAchat ? ` · achat ${numFr(p.prixAchat)}` : ""}
+                  </div>
+                  {hasStock(p) && <div style={{ height: 5, borderRadius: 5, background: "rgba(169,180,208,.18)", marginTop: 6 }}><i style={{ display: "block", height: "100%", borderRadius: 5, width: `${s.pct}%`, background: s.kind === "ko" ? C.rustLight : s.kind === "or" ? C.goldLight : C.greenLight }} /></div>}
+                </button>
+                <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                  <EditDeleteButtons onEdit={() => openEdit(p)} onDelete={() => deleteProduct(p)} />
+                  {hasStock(p) && <button onClick={() => openMove("entree", p.id)} aria-label="Entrée ou sortie" title="Entrée / sortie" style={{ background: "none", border: "none", color: C.muted, cursor: "pointer", padding: 4 }}><Truck size={15} /></button>}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        {aRacheter.length > 0 && (
+          <div style={{ display: "flex", gap: 10, marginTop: 12, ...tint.ko, borderRadius: 16, padding: "12px 14px", fontSize: 12.5, lineHeight: 1.45, alignItems: "center" }}>
+            <AlertTriangle size={19} style={{ flexShrink: 0 }} />
+            <span style={{ color: C.text }}><b>{aRacheter.length} produit{aRacheter.length > 1 ? "s" : ""} sous le seuil :</b> <span style={{ color: C.muted }}>{aRacheter.map(p => `${p.nom} (${numFr(p.stock)})`).join(", ")}.</span></span>
+          </div>
+        )}
+      </>)}
+
+      {seg === "mouvements" && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 12 }}>
+          {stockMoves.length === 0 && <div style={{ color: C.muted, textAlign: "center", padding: 20 }}>Aucun mouvement pour l'instant.</div>}
+          {stockMoves.slice().reverse().slice(0, 150).map(m => (
+            <div key={m.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "11px 12px", background: C.card, borderRadius: 16 }}>
+              <IconTile kind={m.type === "vente" ? "or" : m.delta < 0 ? "ko" : m.type === "inventaire" ? "bl" : "ok"}>{m.type === "vente" ? <ShoppingBag size={18} /> : m.delta < 0 ? <ArrowUpFromLine size={18} /> : m.type === "inventaire" ? <ClipboardList size={18} /> : <ArrowDownToLine size={18} />}</IconTile>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}><b style={{ fontSize: 13.5 }}>{m.productName}</b><b style={{ color: m.delta < 0 ? C.rustLight : C.greenLight }}>{m.delta > 0 ? "+" : ""}{m.delta}</b></div>
+                <div style={{ color: C.muted, fontSize: 12 }}>{m.motif || m.type}{m.ref ? ` · ${m.ref}` : ""}{m.by ? ` · ${m.by}` : ""} · {frDate(m.date)} {String(m.date).slice(11, 16)} · {m.before} → {m.after}</div>
+              </div>
+              <EditDeleteButtons onEdit={() => editMoveNote(m)} onDelete={() => deleteMove(m)} />
+            </div>
+          ))}
+        </div>
+      )}
+
+      {seg === "inventaire" && (
+        <div style={{ marginTop: 12 }}>
+          <div style={{ color: C.muted, fontSize: 12.5, marginBottom: 10 }}>Compte les produits en rayon et tape la quantité réelle. Seuls les produits remplis sont corrigés.</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {physical.map(p => (
+              <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 12px", background: C.card, borderRadius: 16 }}>
+                <ProductThumb p={p} size={38} />
+                <div style={{ flex: 1, minWidth: 0 }}><b style={{ fontSize: 13.5 }}>{p.nom}</b><div style={{ color: C.muted, fontSize: 12 }}>Prévu : {numFr(p.stock)}</div></div>
+                <input type="number" inputMode="numeric" placeholder="Compté" aria-label={`Quantité comptée pour ${p.nom}`} value={counts[p.id] ?? ""} onChange={e => setCounts({ ...counts, [p.id]: e.target.value })} style={{ ...inputStyle, width: 96, textAlign: "center" }} />
+              </div>
+            ))}
+          </div>
+          {physical.length > 0 && <button onClick={applyInventory} className="kbs-tap" style={{ ...btnGold, width: "100%", height: 52, marginTop: 14 }}><ClipboardList size={17} /> Enregistrer l'inventaire</button>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ---------------------------------- VENDRE ---------------------------------- */
+function TabVendre({ products, setProducts, stockMoves, setStockMoves, prospects, setProspects, team, currentUser, codes, agency, go }) {
+  const [step, setStep] = useState("catalogue"); // catalogue | encaisser | recu
+  const [cart, setCart] = useState([]);          // [{ key, productId, label, prix, qte }]
+  const [search, setSearch] = useState("");
+  const [cat, setCat] = useState("Tous");
+  const [scan, setScan] = useState(false);
+  const [free, setFree] = useState(null);         // article libre en cours { label, prix }
+  const [clientMode, setClientMode] = useState("comptoir"); // comptoir | existant | nouveau
+  const [clientId, setClientId] = useState("");
+  const [newClient, setNewClient] = useState({ nom: "", whatsapp: "" });
+  const [vendeur, setVendeur] = useState(currentUser || (team[0] && team[0].id) || "");
+  const [mode, setMode] = useState(PAY_MODES[0]);
+  const [recu, setRecu] = useState("");
+  const [remise, setRemise] = useState(0);
+  const [lastSale, setLastSale] = useState(null);
+  const searchRef = useRef(null);
+
+  const cats = ["Tous", ...Array.from(new Set(products.map(p => p.categorie).filter(Boolean)))];
+  const visible = products.filter(p => (cat === "Tous" || p.categorie === cat) &&
+    (!search.trim() || `${p.nom} ${p.codeBarre || ""}`.toLowerCase().includes(search.trim().toLowerCase())));
+  const qteOf = (pid) => (cart.find(c => c.productId === pid) || {}).qte || 0;
+  const sousTotal = cart.reduce((s, c) => s + c.prix * c.qte, 0);
+  const total = Math.max(0, sousTotal - (Number(remise) || 0));
+  const nbArticles = cart.reduce((s, c) => s + c.qte, 0);
+  const recuNum = recu === "" ? total : Number(recu) || 0;
+  const paye = Math.min(recuNum, total);
+  const rendu = Math.max(0, recuNum - total);
+  const reste = Math.max(0, total - recuNum);
+
+  function add(p) {
+    if (hasStock(p) && qteOf(p.id) + 1 > (Number(p.stock) || 0)) {
+      if (!window.confirm(`Stock insuffisant pour « ${p.nom} » (${Number(p.stock) || 0} en stock). Ajouter quand même ?`)) return;
+    }
+    setCart(prev => prev.some(c => c.productId === p.id)
+      ? prev.map(c => c.productId === p.id ? { ...c, qte: c.qte + 1 } : c)
+      : [...prev, { key: `p-${p.id}`, productId: p.id, label: p.nom, prix: Number(p.prixVente) || 0, qte: 1 }]);
+  }
+  function setQte(key, q) {
+    setCart(prev => q <= 0 ? prev.filter(c => c.key !== key) : prev.map(c => c.key === key ? { ...c, qte: q } : c));
+  }
+  function onSearchKey(e) {
+    if (e.key !== "Enter") return;
+    const code = search.trim();
+    const p = products.find(x => x.codeBarre && x.codeBarre === code);
+    if (p) { add(p); setSearch(""); }
+  }
+  function onScanned(code) {
+    setScan(false);
+    const p = products.find(x => x.codeBarre && x.codeBarre === code);
+    if (p) add(p); else { setSearch(code); window.alert(`Aucun produit avec le code ${code}.`); }
+  }
+  function addFree() {
+    if (!free || !free.label.trim() || !(Number(free.prix) > 0)) return;
+    setCart(prev => [...prev, { key: `f-${Date.now()}`, productId: null, label: free.label.trim(), prix: Number(free.prix), qte: 1 }]);
+    setFree(null);
+  }
+  function askRemise() {
+    const c = window.prompt("Remise : code du CEO (le vendeur ne peut pas baisser un prix seul)");
+    if (c == null) return;
+    if (!codeMatches(c, codes.ceo)) { window.alert("Code incorrect — remise refusée."); return; }
+    const v = window.prompt(`Montant de la remise en FCFA (sous-total : ${numFr(sousTotal)})`, String(remise || ""));
+    if (v == null) return;
+    setRemise(Math.max(0, Math.min(sousTotal, Number(v) || 0)));
+  }
+  function resetSale() {
+    setCart([]); setRemise(0); setRecu(""); setClientMode("comptoir"); setClientId(""); setNewClient({ nom: "", whatsapp: "" }); setMode(PAY_MODES[0]); setStep("catalogue");
+  }
+
+  function validate() {
+    if (!cart.length) return;
+    if (reste > 0 && clientMode === "comptoir") { window.alert("Le client ne paie pas tout : choisis ou crée le client pour garder le reste dans ses crédits."); return; }
+    if (clientMode === "nouveau" && !newClient.nom.trim()) { window.alert("Indique le nom du nouveau client."); return; }
+    if (clientMode === "existant" && !clientId) { window.alert("Choisis le client."); return; }
+    const today = new Date().toISOString().slice(0, 10);
+    const saleId = Date.now();
+    const items = cart.map(c => ({ productId: c.productId, label: c.label, qte: c.qte, prix: c.prix }));
+    const summary = items.map(it => `${it.qte > 1 ? it.qte + " × " : ""}${it.label}`).join(", ");
+    const vendeurName = (team.find(m => m.id === vendeur) || {}).name || "";
+    const allPays = prospects.flatMap(paymentsOf).map(x => ({ numero: x.recNumero }));
+    const recNumero = nextNumero("REC", allPays, today);
+    const pay = paye > 0 ? { id: saleId + 1, date: today, montant: paye, mode, recNumero, note: summary.slice(0, 80) } : null;
+    const achat = { id: saleId, date: today, items, sousTotal, remise: Number(remise) || 0, total, vendeur: vendeurName, recNumero: pay ? recNumero : "" };
+
+    let client;
+    if (clientMode === "existant") {
+      const p = prospects.find(x => String(x.id) === String(clientId));
+      const base = prixTotalOf(p) || Number(p.montant) || 0;
+      const updated = { ...p, prixTotal: base + total, achats: [...(p.achats || []), achat], pack: p.pack || summary };
+      client = withPayments(updated, [...paymentsOf(p), ...(pay ? [pay] : [])]);
+      setProspects(prospects.map(x => x.id === p.id ? client : x));
+    } else {
+      const nom = clientMode === "nouveau" ? newClient.nom.trim() : "Client comptoir";
+      const fresh = {
+        id: saleId, nom, prenom: "", whatsapp: clientMode === "nouveau" ? newClient.whatsapp.trim() : "", email: "", adresse: "", quartier: "",
+        dateInscription: today, pack: summary, statut: reste > 0 ? "En discussion" : "Payé", owner: vendeur, prixTotal: total,
+        achats: [achat], historique: [{ id: saleId + 2, date: today, note: `Vente en caisse : ${summary}` }], source: "vente",
+      };
+      client = withPayments(fresh, pay ? [pay] : []);
+      setProspects([...prospects, client]);
+    }
+
+    // Sortie de stock pour chaque produit suivi.
+    let cur = products;
+    const moves = [];
+    items.forEach(it => {
+      const p = cur.find(x => x.id === it.productId);
+      if (!p || !hasStock(p)) return;
+      const before = Number(p.stock) || 0, after = before - it.qte;
+      cur = cur.map(x => x.id === p.id ? { ...x, stock: after } : x);
+      moves.push({ id: saleId + Math.random(), date: new Date().toISOString(), productId: p.id, productName: p.nom, type: "vente", delta: -it.qte, before, after, motif: "Vente", by: vendeurName, ref: pay ? recNumero : clientFullName(client) });
+    });
+    if (moves.length) { setProducts(cur); setStockMoves(prev => [...prev, ...moves]); }
+
+    notifyTeam("Nouvelle vente 🛒", `${clientFullName(client)} — ${money(total)}${reste > 0 ? ` (reste ${money(reste)})` : ""}`, "vendre");
+    setLastSale({
+      client, items, sousTotal, remise: Number(remise) || 0, total, paye, rendu, reste, mode, vendeur: vendeurName, date: new Date(),
+      recu: {
+        numero: pay ? recNumero : fallbackNumero("REC", today, saleId), date: today, clientNom: clientFullName(client), whatsapp: client.whatsapp, email: client.email,
+        adresse: "", service: summary, montant: paye, mode, note: "", prixTotal: total, totalPaye: paye, reste,
+      },
+    });
+    setStep("recu");
+  }
+
+  /* ---- Recu ---- */
+  if (step === "recu" && lastSale) {
+    const r = lastSale.recu;
+    const tr = { display: "flex", justifyContent: "space-between", gap: 8, margin: "4px 14px" };
+    return (
+      <div style={{ maxWidth: 440, margin: "0 auto" }}>
+        <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 8, color: C.greenLight, fontWeight: 700 }}><CheckCircle size={19} /> Vente enregistrée</div>
+        <div className="kbs-print" style={{ background: "#FFFFFF", color: "#011B45", borderRadius: "16px 16px 0 0", marginTop: 14, overflow: "hidden", fontSize: 12.5, paddingBottom: 14 }}>
+          <div style={{ background: "#011B45", color: "#F4F6FB", padding: "12px 14px", display: "flex", alignItems: "center", gap: 10 }}>
+            <img src={agency.logo || BRAND_LOGO} alt="" style={{ width: 34, height: 34, borderRadius: "50%" }} />
+            <div style={{ flex: 1 }}><div style={{ fontFamily: "Archivo, sans-serif", fontWeight: 800, fontSize: 14 }}>{agency.name || "KBS DIGITAL AGENCY"}</div><div style={{ fontSize: 10.5, opacity: .8 }}>{agency.phone1}</div></div>
+            <div style={{ textAlign: "right" }}><div style={{ fontFamily: "Archivo, sans-serif", fontWeight: 900, color: "#F39200", fontSize: 15 }}>REÇU</div><div style={{ fontSize: 10, opacity: .8 }}>{r.numero}</div></div>
+          </div>
+          <div style={{ height: 3, background: "#F39200" }} />
+          <div style={{ ...tr, marginTop: 12 }}><span style={{ color: "#5A6B85" }}>Date</span><b>{lastSale.date.toLocaleDateString("fr-FR")} · {lastSale.date.toTimeString().slice(0, 5)}</b></div>
+          <div style={tr}><span style={{ color: "#5A6B85" }}>Client</span><b>{r.clientNom}</b></div>
+          {lastSale.vendeur && <div style={tr}><span style={{ color: "#5A6B85" }}>Vendeur</span><b>{lastSale.vendeur}</b></div>}
+          <div style={{ borderTop: "1px dashed #B8C2D6", margin: "9px 14px" }} />
+          {lastSale.items.map((it, i) => <div key={i} style={tr}><span>{it.qte} × {it.label}</span><b>{numFr(it.qte * it.prix)}</b></div>)}
+          {lastSale.remise > 0 && <div style={tr}><span>Remise</span><b>− {numFr(lastSale.remise)}</b></div>}
+          <div style={{ borderTop: "1px dashed #B8C2D6", margin: "9px 14px" }} />
+          <div style={{ ...tr, fontSize: 14.5 }}><b style={{ fontFamily: "Archivo, sans-serif" }}>TOTAL</b><b style={{ fontFamily: "Archivo, sans-serif" }}>{money(lastSale.total)}</b></div>
+          <div style={tr}><span style={{ color: "#5A6B85" }}>Payé · {lastSale.mode}</span><b style={{ color: "#1E8A5F" }}>{numFr(lastSale.paye)}</b></div>
+          {lastSale.rendu > 0 && <div style={tr}><span style={{ color: "#5A6B85" }}>Monnaie rendue</span><b>{numFr(lastSale.rendu)}</b></div>}
+          {lastSale.reste > 0 && <div style={{ ...tr, background: "#FFF2DC", margin: "6px 0", padding: "7px 14px" }}><b>Reste à payer</b><b style={{ color: "#C2410C" }}>{money(lastSale.reste)}</b></div>}
+          <div style={{ margin: "8px 14px 0", fontSize: 10.5, color: "#5A6B85", fontStyle: "italic" }}>Arrêté à la somme de {amountInWords(lastSale.total).replace(/^./, c => c.toLowerCase())}.</div>
+          <div style={{ textAlign: "center", marginTop: 10, fontSize: 11.5, fontWeight: 700 }}>Merci pour votre confiance</div>
+        </div>
+        <div aria-hidden="true" style={{ height: 10, background: "radial-gradient(circle at 7px 0, transparent 6px, #FFFFFF 6.5px) repeat-x", backgroundSize: "14px 10px", transform: "rotate(180deg)" }} />
+        <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 18 }}>
+          {r.whatsapp ? (
+            <a href={waLink(r.whatsapp, receiptText(r, agency))} target="_blank" rel="noopener noreferrer" className="kbs-tap" style={{ ...btnGold, background: "#25D366", color: "#05301A", textDecoration: "none", height: 52, boxSizing: "border-box" }}><Send size={17} /> Envoyer sur WhatsApp</a>
+          ) : null}
+          <div style={{ display: "flex", gap: 10 }}>
+            <button onClick={() => buildRecuPDF(r, agency, BRAND_LOGO)} style={{ ...btnGold, flex: 1, background: C.card, color: C.text }}><FileText size={16} /> PDF</button>
+            <button onClick={() => window.print()} style={{ ...btnGold, flex: 1, background: C.card, color: C.text }}><Printer size={16} /> Imprimer</button>
+          </div>
+          <button onClick={resetSale} className="kbs-tap" style={{ ...btnGold, height: 52 }}>Nouvelle vente</button>
+          <button onClick={() => { resetSale(); go("crm"); }} style={{ ...iconBtn, padding: 10 }}>Voir la fiche du client</button>
+        </div>
+      </div>
+    );
+  }
+
+  /* ---- Encaisser ---- */
+  if (step === "encaisser") {
+    const lbl = { display: "block", fontSize: 12.5, color: C.muted, margin: "16px 0 8px 2px", fontWeight: 600 };
+    const payColors = { "Orange Money": ["#FF7900", "#111", "OM"], "Wave": ["#1DC8FF", "#04253A", "W"], "Espèces": ["#3E6B52", "#fff", "CFA"], "Moov Money": ["#0066B3", "#fff", "MM"] };
+    return (
+      <div style={{ maxWidth: 560, margin: "0 auto" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
+          <button onClick={() => setStep("catalogue")} aria-label="Retour" style={{ width: 40, height: 40, borderRadius: 13, background: C.card, border: "none", color: C.text, display: "grid", placeItems: "center", cursor: "pointer" }}><ChevronLeft size={20} /></button>
+          <div style={{ fontFamily: "Archivo, sans-serif", fontSize: 21, fontWeight: 800 }}>Encaisser</div>
+        </div>
+        <div style={{ background: C.card, borderRadius: 20, padding: "6px 14px" }}>
+          {cart.map((c, i) => (
+            <div key={c.key} style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 0", borderTop: i ? `1px solid ${C.border}` : "none", fontSize: 13.5 }}>
+              <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontWeight: 600 }}>{c.label}</div><div style={{ color: C.muted, fontSize: 12 }}>{numFr(c.prix)} FCFA</div></div>
+              <button onClick={() => setQte(c.key, c.qte - 1)} aria-label="Moins" style={{ width: 32, height: 32, borderRadius: 10, background: C.card2, border: "none", color: C.text, display: "grid", placeItems: "center", cursor: "pointer" }}>{c.qte === 1 ? <Trash2 size={14} /> : <Minus size={15} />}</button>
+              <b style={{ width: 24, textAlign: "center" }}>{c.qte}</b>
+              <button onClick={() => { const p = products.find(x => x.id === c.productId); if (p) add(p); else setQte(c.key, c.qte + 1); }} aria-label="Plus" style={{ width: 32, height: 32, borderRadius: 10, background: C.card2, border: "none", color: C.text, display: "grid", placeItems: "center", cursor: "pointer" }}><Plus size={15} /></button>
+              <b style={{ width: 70, textAlign: "right" }}>{numFr(c.prix * c.qte)}</b>
+            </div>
+          ))}
+          <div style={{ display: "flex", justifyContent: "space-between", padding: "10px 0", borderTop: `1px solid ${C.border}`, fontSize: 13.5 }}>
+            <span style={{ color: C.muted }}>Remise</span>
+            <button onClick={askRemise} style={{ background: "none", border: "none", color: C.goldLight, fontWeight: 700, cursor: "pointer" }}>{remise > 0 ? `− ${numFr(remise)} (modifier)` : "Demander au CEO"}</button>
+          </div>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderTop: `1px solid ${C.border}` }}>
+            <span style={{ fontFamily: "Archivo, sans-serif", fontWeight: 800, fontSize: 16 }}>Total</span>
+            <span style={{ fontFamily: "Archivo, sans-serif", fontWeight: 800, fontSize: 21, color: C.goldLight }}>{money(total)}</span>
+          </div>
+        </div>
+
+        <span style={lbl}>Client</span>
+        <Seg options={[["comptoir", "Comptoir"], ["existant", "Client existant"], ["nouveau", "Nouveau"]]} value={clientMode} onChange={setClientMode} />
+        {clientMode === "existant" && (
+          <select value={clientId} onChange={e => setClientId(e.target.value)} style={{ ...inputStyle, marginTop: 8 }}>
+            <option value="">— Choisir le client —</option>
+            {prospects.slice().sort((a, b) => clientFullName(a).localeCompare(clientFullName(b))).map(p => <option key={p.id} value={p.id}>{clientFullName(p)}{p.whatsapp ? ` · ${p.whatsapp}` : ""}{resteAPayer(p) > 0 ? ` · doit ${numFr(resteAPayer(p))}` : ""}</option>)}
+          </select>
+        )}
+        {clientMode === "nouveau" && (
+          <div className="kbs-grid2" style={{ marginTop: 8 }}>
+            <input placeholder="Nom et prénom *" value={newClient.nom} onChange={e => setNewClient({ ...newClient, nom: e.target.value })} style={inputStyle} />
+            <input placeholder="WhatsApp" inputMode="tel" value={newClient.whatsapp} onChange={e => setNewClient({ ...newClient, whatsapp: e.target.value })} style={inputStyle} />
+          </div>
+        )}
+
+        <span style={lbl}>Vendeur</span>
+        <select value={vendeur} onChange={e => setVendeur(e.target.value)} style={inputStyle}>{team.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}</select>
+
+        <span style={lbl}>Moyen de paiement</span>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 8 }}>
+          {PAY_MODES.slice(0, 4).map(m => {
+            const [bg, fg, ab] = payColors[m] || ["#555", "#fff", "?"];
+            return (
+              <button key={m} onClick={() => setMode(m)} style={{ display: "flex", alignItems: "center", gap: 9, padding: 11, borderRadius: 14, background: mode === m ? "rgba(243,146,0,.10)" : C.card, border: `1.5px solid ${mode === m ? C.gold : "transparent"}`, color: C.text, fontWeight: 600, fontSize: 13, cursor: "pointer", textAlign: "left" }}>
+                <span style={{ width: 30, height: 30, borderRadius: 9, display: "grid", placeItems: "center", fontFamily: "Archivo, sans-serif", fontWeight: 800, fontSize: 10, background: bg, color: fg, flexShrink: 0 }}>{ab}</span>{m}
+              </button>
+            );
+          })}
+        </div>
+        <select value={PAY_MODES.slice(0, 4).includes(mode) ? "" : mode} onChange={e => e.target.value && setMode(e.target.value)} style={{ ...inputStyle, marginTop: 8 }}>
+          <option value="">Autre moyen…</option>
+          {PAY_MODES.slice(4).map(m => <option key={m} value={m}>{m}</option>)}
+        </select>
+
+        <span style={lbl}>Montant reçu maintenant</span>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, height: 56, borderRadius: 15, border: `1.5px solid ${C.gold}`, boxShadow: "0 0 0 3px rgba(243,146,0,.16)", background: C.surf, padding: "0 16px" }}>
+          <input type="number" inputMode="numeric" value={recu === "" ? total : recu} onChange={e => setRecu(e.target.value)} aria-label="Montant reçu" style={{ flex: 1, background: "transparent", border: "none", color: C.text, fontFamily: "Archivo, sans-serif", fontSize: 22, fontWeight: 800, minWidth: 0 }} />
+          <span style={{ color: C.muted }}>FCFA</span>
+        </div>
+        {reste > 0 && (
+          <div style={{ display: "flex", gap: 10, marginTop: 12, ...tint.or, borderRadius: 16, padding: "12px 14px", fontSize: 13, lineHeight: 1.45 }}>
+            <Clock size={19} style={{ flexShrink: 0 }} />
+            <span style={{ color: C.text }}><b>Avance : reste {money(reste)}</b><br /><span style={{ color: C.muted }}>Ajouté automatiquement aux crédits du client.</span></span>
+          </div>
+        )}
+        {rendu > 0 && (
+          <div style={{ display: "flex", gap: 10, marginTop: 12, ...tint.ok, borderRadius: 16, padding: "12px 14px", fontSize: 13 }}>
+            <Banknote size={19} style={{ flexShrink: 0 }} />
+            <span style={{ color: C.text }}>Monnaie à rendre : <b>{money(rendu)}</b></span>
+          </div>
+        )}
+        <button onClick={validate} className="kbs-tap" style={{ ...btnGold, width: "100%", height: 56, marginTop: 18, fontSize: 16 }}><CheckCircle size={18} /> Valider la vente</button>
+      </div>
+    );
+  }
+
+  /* ---- Catalogue ---- */
+  return (
+    <div>
+      {scan && <BarcodeScanner onCode={onScanned} onClose={() => setScan(false)} />}
+      <div style={{ display: "flex", alignItems: "center", gap: 10, height: 50, borderRadius: 15, border: `1px solid ${C.border}`, background: C.surf, padding: "0 5px 0 14px", color: C.muted }}>
+        <Search size={19} />
+        <input ref={searchRef} placeholder="Nom du produit ou code-barres" value={search} onChange={e => setSearch(e.target.value)} onKeyDown={onSearchKey} style={{ flex: 1, background: "transparent", border: "none", color: C.text, fontSize: 14.5, minWidth: 0, outline: "none" }} />
+        <button onClick={() => setScan(true)} aria-label="Scanner un code-barres" style={{ width: 40, height: 40, borderRadius: 11, background: C.gold, color: "#011B45", border: "none", display: "grid", placeItems: "center", cursor: "pointer" }}><ScanLine size={20} /></button>
+      </div>
+      {cats.length > 1 && <div style={{ marginTop: 12 }}><Chips options={cats} value={cat} onChange={setCat} /></div>}
+
+      {products.length === 0 ? (
+        <Card style={{ textAlign: "center", marginTop: 14 }}>
+          <ShoppingBag size={30} color={C.muted} style={{ margin: "4px auto 8px", display: "block" }} />
+          <div style={{ fontWeight: 700 }}>Ton catalogue est vide</div>
+          <div style={{ color: C.muted, fontSize: 12.5, margin: "4px 0 12px" }}>Ajoute tes produits et services dans « Stock », ou vends un article libre ci-dessous.</div>
+          <button onClick={() => go("stock")} style={{ ...btnGold, margin: "0 auto" }}><Plus size={16} /> Ajouter des produits</button>
+        </Card>
+      ) : null}
+
+      <div className="kbs-prod" style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 10, marginTop: 14 }}>
+        {visible.map(p => {
+          const q = qteOf(p.id);
+          const s = stockState(p);
+          return (
+            <button key={p.id} onClick={() => add(p)} className="kbs-tap" style={{ background: C.card, borderRadius: 18, padding: 10, position: "relative", border: "none", color: C.text, textAlign: "left", cursor: "pointer", boxShadow: q ? `inset 0 0 0 2px ${C.gold}` : "none" }}>
+              {q > 0 && <span style={{ position: "absolute", top: 8, right: 8, minWidth: 24, height: 24, borderRadius: 12, background: C.gold, color: "#011B45", fontFamily: "Archivo, sans-serif", fontWeight: 800, fontSize: 12, lineHeight: "24px", textAlign: "center", padding: "0 7px", zIndex: 1 }}>{q}</span>}
+              {p.photo
+                ? <img src={p.photo} alt="" style={{ width: "100%", height: 80, objectFit: "cover", borderRadius: 13, marginBottom: 9, display: "block" }} />
+                : <div style={{ ...tint[productKind(p)], height: 80, borderRadius: 13, display: "grid", placeItems: "center", marginBottom: 9 }}>{productIcon(p, 34)}</div>}
+              <div style={{ fontWeight: 700, fontSize: 12.5, lineHeight: 1.25, height: 31, overflow: "hidden" }}>{p.nom}</div>
+              <div style={{ fontFamily: "Archivo, sans-serif", fontWeight: 700, fontSize: 14.5, marginTop: 4 }}>{numFr(p.prixVente)} <span style={{ fontFamily: "Figtree, sans-serif", fontWeight: 500, fontSize: 11, color: C.muted }}>FCFA</span></div>
+              <div style={{ fontSize: 11.5, marginTop: 2, color: s.kind === "ko" ? C.rustLight : C.muted }}>{hasStock(p) ? `${numFr(p.stock)} en stock` : "Service · sans stock"}</div>
+              <span aria-hidden="true" style={{ position: "absolute", right: 10, bottom: 10, width: 30, height: 30, borderRadius: 10, background: C.card2, display: "grid", placeItems: "center" }}><Plus size={16} /></span>
+            </button>
+          );
+        })}
+        <button onClick={() => setFree({ label: "", prix: "" })} style={{ background: "transparent", borderRadius: 18, padding: 10, border: `1.5px dashed ${C.muted}`, color: C.muted, cursor: "pointer", minHeight: 150, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8, fontWeight: 700, fontSize: 12.5 }}>
+          <Plus size={24} /> Article libre
+        </button>
+      </div>
+      {free && (
+        <Card style={{ marginTop: 12 }}>
+          <Eyebrow>Article libre (hors catalogue)</Eyebrow>
+          <div className="kbs-grid2">
+            <input placeholder="Désignation" value={free.label} onChange={e => setFree({ ...free, label: e.target.value })} style={inputStyle} />
+            <input type="number" inputMode="numeric" placeholder="Prix (FCFA)" value={free.prix} onChange={e => setFree({ ...free, prix: e.target.value })} style={inputStyle} />
+          </div>
+          <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+            <button onClick={addFree} style={{ ...btnGold, flex: 1 }}><Plus size={15} /> Ajouter au panier</button>
+            <button onClick={() => setFree(null)} style={{ ...iconBtn, padding: "0 14px" }}>Annuler</button>
+          </div>
+        </Card>
+      )}
+
+      {cart.length > 0 && (
+        <button onClick={() => { setRecu(""); setStep("encaisser"); }} className="kbs-tap" style={{ position: "fixed", left: 12, right: 12, bottom: "calc(92px + env(safe-area-inset-bottom))", zIndex: 25, maxWidth: 560, margin: "0 auto", background: C.gold, color: "#011B45", borderRadius: 18, padding: "11px 14px", display: "flex", alignItems: "center", gap: 12, fontWeight: 700, boxShadow: "0 12px 30px rgba(243,146,0,.35)", border: "none", cursor: "pointer" }}>
+          <span style={{ width: 36, height: 36, borderRadius: 11, background: "#011B45", color: "#FDB402", display: "grid", placeItems: "center", fontFamily: "Archivo, sans-serif", fontWeight: 800, fontSize: 15 }}>{nbArticles}</span>
+          <span style={{ flex: 1, textAlign: "left" }}><span style={{ display: "block", fontSize: 12, opacity: .8 }}>{nbArticles} article{nbArticles > 1 ? "s" : ""}</span><span style={{ fontFamily: "Archivo, sans-serif", fontSize: 17, fontWeight: 800 }}>{money(sousTotal)}</span></span>
+          <span style={{ display: "flex", alignItems: "center", gap: 6, fontFamily: "Archivo, sans-serif" }}>Encaisser <ChevronRight size={18} /></span>
+        </button>
+      )}
+      {cart.length > 0 && <div style={{ height: 80 }} />}
+    </div>
+  );
+}
+
 /* ---------------------------------- SHARED STYLES ---------------------------------- */
-const inputStyle = { background: C.cardAlt, border: `1px solid ${C.border}`, borderRadius: 8, color: C.text, padding: "9px 10px", fontSize: 13, width: "100%" };
-const btnGold = { display: "flex", alignItems: "center", justifyContent: "center", gap: 6, background: C.gold, color: "#FFFFFF", border: "none", borderRadius: 8, padding: "10px", fontWeight: 700, fontSize: 13, cursor: "pointer" };
-const iconBtn = { background: "none", border: `1px solid ${C.border}`, borderRadius: 6, color: C.muted, padding: "3px 6px", fontSize: 11, cursor: "pointer" };
+const inputStyle = { background: C.cardAlt, border: `1px solid ${C.border}`, borderRadius: 13, color: C.text, padding: "12px 13px", fontSize: 14, width: "100%", boxSizing: "border-box" };
+const btnGold = { display: "flex", alignItems: "center", justifyContent: "center", gap: 7, background: C.gold, color: "#011B45", border: "none", borderRadius: 15, padding: "13px", fontWeight: 800, fontSize: 14, fontFamily: "Archivo, sans-serif", cursor: "pointer" };
+const iconBtn = { background: "none", border: `1px solid ${C.border}`, borderRadius: 10, color: C.muted, padding: "5px 8px", fontSize: 12, cursor: "pointer" };

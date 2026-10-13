@@ -1,7 +1,7 @@
 {
-  "name": "KBSAUTO",
-  "short_name": "KBSAUTO",
-  "description": "QG de gestion interne — KBS Digital Agency",
+  "name": "KBS Gestion",
+  "short_name": "KBS Gestion",
+  "description": "KBS Gestion — ventes, stock, clients et équipe de KBS Digital Agency",
   "start_url": ".",
   "display": "standalone",
   "background_color": "#011B45",
