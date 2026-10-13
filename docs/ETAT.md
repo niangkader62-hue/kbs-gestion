@@ -183,3 +183,12 @@ Branche `ccr-5b04f8c0-vt8y8v` (pas encore fusionnée dans `main`).
 - **Sauvegarde quotidienne** : faite à la première ouverture du jour, puis vérifiée toutes les 15 min et au retour sur l'app, pour couvrir une app restée ouverte d'un jour à l'autre.
 - **Clôture** : l'écran s'appelle maintenant « Clôture & remise à zéro ». Une sauvegarde `backup:avant-cloture:…` est faite avant chaque clôture manuelle.
 - **Mise à jour** : `useAppUpdate` relit `index.html` sans cache et compare le fichier `/assets/index-*.js` annoncé avec celui chargé. La vérification se fait au chargement, toutes les 5 min et au retour sur l'app. S'il y a une nouvelle version, un bandeau orange « Mettre à jour maintenant » apparaît, même sur l'écran de connexion. Il y a aussi une carte « Mise à jour de l'application » dans le Menu et un bouton dans le menu latéral. `__BUILD_TIME__` (vite.config.js) affiche la date de la version.
+
+## 2026-10-13 — Calendrier
+
+- **Calendrier** (Ventes & finances, menu latéral, bouton de l'accueil) :
+  - on choisit une date (sélecteur ou grille du mois) ;
+  - pour ce jour, l'écran montre les encaissements, les ventes en caisse, les nouveaux clients, les factures et les dépenses, avec le total encaissé, les dépenses et le solde du jour ;
+  - la grille montre le montant encaissé de chaque jour et des points (vente / dépense) ;
+  - les données viennent du mois en cours et de toutes les archives (`buildDayEvents`, avec dédoublonnage).
+- **Suppression d'une archive** : une sauvegarde complète `backup:avant-suppression:…` est faite d'abord. Si elle échoue, la suppression est annulée.
