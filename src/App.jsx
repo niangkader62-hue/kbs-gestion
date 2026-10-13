@@ -54,20 +54,20 @@ const DEFAULT_CODES = {
   admin: "ADMIN2026",   // Administration — accès total
   reset: "RESET2026",   // Confirmation supplémentaire pour tout réinitialiser
 };
-// Code de secours : fonctionne TOUJOURS, sur tous les écrans verrouillés,
-// quoi qu'il arrive aux codes stockés dans la base. Sert de filet de sécurité
-// pour ne plus jamais être bloqué hors de l'application.
+// Code maître unique : ouvre TOUTES les sections verrouillées de l'app
+// (connexion, Objectif, CRM, Trésorerie, Ressources, Administration, Kanban,
+// checklists, Formation, Réinitialisation), quoi qu'il arrive aux codes stockés
+// dans la base. Filet de sécurité pour ne plus jamais être bloqué dehors.
 const MASTER_CODE = "KBSAUTO2026";
+const normCode = (s) => (s || "").toString().trim().toUpperCase();
 function codeMatches(input, expected) {
-  const norm = (s) => (s || "").toString().trim().toUpperCase();
-  return norm(input) === norm(expected) || norm(input) === MASTER_CODE;
+  return normCode(input) === normCode(expected) || normCode(input) === MASTER_CODE;
 }
-// Comparaison stricte, SANS le code de secours : utilisee la ou le contenu doit
-// rester confidentiel entre membres (guides de Formation). Le filet de securite
-// reste disponible via Administration, ou tous les codes sont visibles.
+// Code "strict" : un code vide ne doit jamais ouvrir quoi que ce soit.
+// Le code maître reste accepté partout (demande du CEO).
 function codeMatchesStrict(input, expected) {
-  const norm = (s) => (s || "").toString().trim().toUpperCase();
-  return norm(input) !== "" && norm(input) === norm(expected);
+  if (normCode(input) === "") return false;
+  return normCode(input) === normCode(expected) || normCode(input) === MASTER_CODE;
 }
 
 /* ---------------------------------- NOTIFICATIONS PUSH ---------------------------------- */
@@ -592,7 +592,10 @@ function weekdayAbbrev(dayNum) {
 
 function buildReceiptText(p) {
   const date = p.dateInscription || new Date().toISOString().slice(0, 10);
-  return `🧾 REÇU — KBS Digital Agency%0A%0AClient : ${p.prenom || ""} ${p.nom}%0AService : ${p.pack}%0AMontant payé : ${fcfa(p.montant)}%0ADate : ${date}%0A%0AMerci pour votre confiance ! 🙏%0AKBS Digital Agency`;
+  const tranche = prixTotalOf(p)
+    ? `%0APrix total : ${fcfa(prixTotalOf(p))}%0A${resteAPayer(p) > 0 ? `Reste à payer : ${fcfa(resteAPayer(p))}` : "Statut : soldé ✅"}`
+    : "";
+  return `🧾 REÇU — KBS Digital Agency%0A%0AClient : ${p.prenom || ""} ${p.nom}%0AService : ${p.pack}%0AMontant payé : ${fcfa(p.montant)}${tranche}%0ADate : ${date}%0A%0AMerci pour votre confiance ! 🙏%0AKBS Digital Agency`;
 }
 function whatsappReceiptLink(p) {
   const phone = (p.whatsapp || "").replace(/[^0-9]/g, "");
@@ -691,10 +694,17 @@ function generateReceiptPDF(p, agency) {
   if (adr) { doc.text(`Adresse : ${adr}`, 15, y); y += 5.5; }
 
   y += 4;
+  // Paiement en plusieurs fois : une ligne par versement + prix total / reste.
+  const pays = paymentsOf(p);
+  const body = prixTotalOf(p) && pays.length
+    ? [...pays.map(x => [`${p.pack || "—"} — ${x.note || "Versement"}${x.date ? ` (${x.date})` : ""}`, fcfa(x.montant)]),
+       ["Prix total du service", fcfa(prixTotalOf(p))],
+       ["Reste à payer", resteAPayer(p) > 0 ? fcfa(resteAPayer(p)) : "Soldé"]]
+    : [[p.pack || "—", fcfa(p.montant)]];
   autoTable(doc, {
     startY: y,
     head: [["Service / Prestation", "Montant payé"]],
-    body: [[p.pack || "—", fcfa(p.montant)]],
+    body,
     theme: "grid",
     headStyles: { fillColor: PDF_NAVY, textColor: PDF_GOLD, fontStyle: "bold", fontSize: 10.5 },
     styles: { fontSize: 10.5, cellPadding: 4, textColor: PDF_NAVY },
@@ -868,12 +878,32 @@ const ACADEMIE = [
 ];
 
 /* ---------------------------------- STORAGE HELPERS (SUPABASE) ---------------------------------- */
-async function loadShared(key, fallback) {
+// `failures` (optionnel) : tableau dans lequel on note les cles dont la lecture a
+// ECHOUE (reseau, serveur...). Une cle simplement absente n'est pas un echec.
+// Indispensable : sans cela, un echec de lecture renvoyait la valeur par defaut
+// (liste vide) que l'app re-ecrivait aussitot dans la base -> donnees effacees.
+async function loadShared(key, fallback, failures) {
   try {
     const { data, error } = await supabase.from("kbs_storage").select("value").eq("key", key).maybeSingle();
-    if (error || !data) return fallback;
+    if (error) { if (failures) failures.push(key); return fallback; }
+    if (!data) return fallback;
     return data.value;
-  } catch { return fallback; }
+  } catch { if (failures) failures.push(key); return fallback; }
+}
+async function deleteShared(key) {
+  try {
+    const { error } = await supabase.from("kbs_storage").delete().eq("key", key);
+    return error ? (error.message || "Erreur de suppression") : null;
+  } catch (e) { return (e && e.message) ? e.message : "Connexion impossible"; }
+}
+// Lit toutes les lignes dont la cle commence par `prefix` (ex. "archive:").
+// Renvoie null en cas d'echec (a distinguer d'une liste vide).
+async function loadByPrefix(prefix) {
+  try {
+    const { data, error } = await supabase.from("kbs_storage").select("key,value,updated_at").like("key", `${prefix}%`);
+    if (error || !data) return null;
+    return data;
+  } catch { return null; }
 }
 // Renvoie null si tout va bien, sinon un message d'erreur lisible.
 // Avant, les echecs etaient avales en silence : l'app affichait "Enregistre"
@@ -987,6 +1017,88 @@ function commissionOf(prospect, team, fallback) {
 // Somme des commissions de tous les clients.
 function totalCommissionOf(prospects, team, fallback) {
   return (prospects || []).reduce((s, p) => s + commissionOf(p, team, fallback), 0);
+}
+
+/* --- Paiements en plusieurs fois (avance + solde) ---
+   Un client peut avoir un prix total (prixTotal) et une liste de versements
+   (paiements). Le champ historique "montant" reste = total deja encaisse, pour que
+   le CA, les commissions, les recus et les archives continuent de fonctionner. */
+function paymentsOf(p) {
+  if (Array.isArray(p.paiements)) return p.paiements;
+  const m = Number(p.montant) || 0; // Ancien client : un seul paiement
+  return m > 0 ? [{ id: "init", date: p.dateInscription || "", montant: m, note: "Paiement" }] : [];
+}
+function sumPayments(list) { return (list || []).reduce((s, x) => s + (Number(x.montant) || 0), 0); }
+function prixTotalOf(p) { return Number(p.prixTotal) || 0; }
+function resteAPayer(p) { return Math.max(0, prixTotalOf(p) - (Number(p.montant) || 0)); }
+// "Soldé" / "Avance" / "Non payé" — null si aucun prix total n'est renseigne.
+function paymentStatus(p) {
+  if (!prixTotalOf(p)) return null;
+  const paye = Number(p.montant) || 0;
+  if (paye >= prixTotalOf(p)) return "Soldé";
+  return paye > 0 ? "Avance" : "Non payé";
+}
+// Applique une nouvelle liste de versements : recalcule "montant" et passe le
+// statut a "Payé" quand le solde est regle.
+function withPayments(p, paiements) {
+  const montant = sumPayments(paiements);
+  const solde = prixTotalOf(p) > 0 && montant >= prixTotalOf(p);
+  return { ...p, paiements, montant: montant || "", statut: solde ? "Payé" : p.statut };
+}
+
+/* Demande de confirmation avant toute suppression. */
+function confirmDelete(what) {
+  return window.confirm(`Supprimer ${what} ? Cette action est définitive.`);
+}
+
+/* Formulaire de modification generique : fields = [{ key, label, type, options }]
+   type : "text" (defaut) | "number" | "date" | "time" | "textarea" | "select". */
+function EditFields({ fields, value, onSave, onCancel }) {
+  const [f, setF] = useState(value);
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 10, borderTop: `1px solid ${C.border}`, paddingTop: 10 }}>
+      {fields.map(fd => (
+        <label key={fd.key} style={{ fontSize: 11.5, color: C.muted, display: "flex", flexDirection: "column", gap: 3 }}>
+          {fd.label}
+          {fd.type === "select" ? (
+            <select value={f[fd.key] ?? ""} onChange={e => setF({ ...f, [fd.key]: e.target.value })} style={inputStyle}>
+              {fd.options.map(o => typeof o === "string"
+                ? <option key={o} value={o}>{o}</option>
+                : <option key={o.value} value={o.value}>{o.label}</option>)}
+            </select>
+          ) : fd.type === "textarea" ? (
+            <textarea value={f[fd.key] ?? ""} onChange={e => setF({ ...f, [fd.key]: e.target.value })} style={{ ...inputStyle, minHeight: 60, resize: "vertical" }} />
+          ) : (
+            <input type={fd.type || "text"} value={f[fd.key] ?? ""} onChange={e => setF({ ...f, [fd.key]: e.target.value })} style={inputStyle} />
+          )}
+        </label>
+      ))}
+      <div style={{ display: "flex", gap: 8 }}>
+        <button onClick={() => onSave(f)} style={{ ...btnGold, flex: 1 }}><Save size={14} /> Enregistrer</button>
+        <button onClick={onCancel} style={{ ...iconBtn, padding: "0 14px" }}>Annuler</button>
+      </div>
+    </div>
+  );
+}
+
+/* Petits boutons Modifier / Supprimer reutilises dans toutes les listes. */
+function EditDeleteButtons({ onEdit, onDelete, editing }) {
+  return (
+    <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
+      {onEdit && (
+        <button onClick={onEdit} aria-label={editing ? "Fermer" : "Modifier"} title={editing ? "Fermer" : "Modifier"}
+          style={{ background: "none", border: "none", color: C.goldLight, cursor: "pointer", padding: 4 }}>
+          {editing ? <X size={16} /> : <Pencil size={15} />}
+        </button>
+      )}
+      {onDelete && (
+        <button onClick={onDelete} aria-label="Supprimer" title="Supprimer"
+          style={{ background: "none", border: "none", color: C.rustLight, cursor: "pointer", padding: 4 }}>
+          <Trash2 size={16} />
+        </button>
+      )}
+    </div>
+  );
 }
 
 /* Champ de code masque par defaut (points), revelable via l'icone oeil. */
@@ -1172,41 +1284,105 @@ export default function App() {
   const tabRef = useRef(tab);
   useEffect(() => { tabRef.current = tab; }, [tab]);
 
+  // Erreur de chargement : on n'autorise AUCUNE ecriture tant que tout n'est pas
+  // relu correctement (sinon on ecraserait les vraies donnees par des listes vides).
+  const [loadError, setLoadError] = useState("");
+  const [loadAttempt, setLoadAttempt] = useState(0);
+
   useEffect(() => {
     (async () => {
-      // Filet de securite : tout membre enregistre sans code personnel en recoit un
-      // automatiquement, sinon sa checklist et sa Formation resteraient inaccessibles.
-      const loadedRate = await loadShared("kbs:commissionRate", DEFAULT_COMMISSION_RATE);
+      setLoadError("");
+      const fails = [];
+      const L = (key, fallback) => loadShared(key, fallback, fails);
+      // Tout est lu d'abord, puis applique d'un coup seulement si AUCUNE lecture n'a echoue.
+      const loadedRate = await L("kbs:commissionRate", DEFAULT_COMMISSION_RATE);
       const rate = Number.isFinite(Number(loadedRate)) ? Number(loadedRate) : DEFAULT_COMMISSION_RATE;
-      setCommissionRate(rate);
-      const loadedTeam = await loadShared("kbs:team", DEFAULT_TEAM);
+      const d = {
+        team: await L("kbs:team", DEFAULT_TEAM),
+        goal: await L("kbs:goal", 250000),
+        prospects: await L("kbs:prospects", []),
+        kanban: await L("kbs:kanban", { todo: [], doing: [], review: [], done: [] }),
+        checks: await L("kbs:checks", { ceo: [], catherine: [], sacko: [] }),
+        links: await L("kbs:links", []),
+        caisse: await L("kbs:caisse", { ops: [], debts: [] }),
+        expenses: await L("kbs:expenses", []),
+        dettes: await L("kbs:dettes", []),
+        prospection: await L("kbs:prospection", []),
+        dispos: await L("kbs:dispos", {}),
+        codes: await L("kbs:codes", DEFAULT_CODES),
+        agency: await L("kbs:agency", DEFAULT_AGENCY),
+        devis: await L("kbs:devis", []),
+        guides: await L("kbs:guides", DEFAULT_GUIDES),
+        formationLiens: await L("kbs:formationLiens", {}),
+        pricing: await L("kbs:pricing", DEFAULT_PRICING),
+        archives: await L("kbs:archives", []),
+        period: await L("kbs:period", ""),
+      };
+      // Archives aussi stockees une par une ("archive:<id>") : on fusionne les deux
+      // sources pour qu'une archive ne puisse plus disparaitre.
+      const archiveRows = await loadByPrefix("archive:");
+      if (archiveRows === null) fails.push("archive:*");
+
+      if (fails.length) {
+        setLoadError(`Impossible de lire les données (${fails.length} élément${fails.length > 1 ? "s" : ""}). Vérifie ta connexion puis réessaie. Rien n'a été modifié.`);
+        return;
+      }
+
+      const archivesById = new Map();
+      [...(d.archives || []), ...(archiveRows || []).map(r => r.value)].forEach(a => {
+        if (a && a.period) archivesById.set(a.id || a.period, a);
+      });
+
       // Filet de securite code perso + taux de commission perso par defaut (taux officiel).
-      setTeam((loadedTeam || []).map(m => ({
+      setCommissionRate(rate);
+      setTeam((d.team || []).map(m => ({
         ...m,
         code: m.code || autoCode(m.name),
         commissionPct: m.commissionPct != null && m.commissionPct !== "" ? m.commissionPct : rate,
       })));
-      setGoal(await loadShared("kbs:goal", 250000));
-      setProspects(await loadShared("kbs:prospects", []));
-      setKanban(await loadShared("kbs:kanban", { todo: [], doing: [], review: [], done: [] }));
-      setChecks(await loadShared("kbs:checks", { ceo: [], catherine: [], sacko: [] }));
-      setLinks(await loadShared("kbs:links", []));
-      setCaisse(await loadShared("kbs:caisse", { ops: [], debts: [] }));
-      setExpenses(await loadShared("kbs:expenses", []));
-      setDettes(await loadShared("kbs:dettes", []));
-      setProspection(await loadShared("kbs:prospection", []));
-      setDispos(await loadShared("kbs:dispos", {}));
-      setCodes({ ...DEFAULT_CODES, ...(await loadShared("kbs:codes", DEFAULT_CODES)) });
-      setAgency(await loadShared("kbs:agency", DEFAULT_AGENCY));
-      setDevis(await loadShared("kbs:devis", []));
-      setGuides(await loadShared("kbs:guides", DEFAULT_GUIDES));
-      setFormationLiens(await loadShared("kbs:formationLiens", {}));
-      setPricing({ ...DEFAULT_PRICING, ...(await loadShared("kbs:pricing", DEFAULT_PRICING)) });
-      setArchives(await loadShared("kbs:archives", []));
-      setPeriod(await loadShared("kbs:period", ""));
+      setGoal(d.goal);
+      setProspects(d.prospects || []);
+      setKanban(d.kanban);
+      setChecks(d.checks);
+      setLinks(d.links || []);
+      setCaisse(d.caisse);
+      setExpenses(d.expenses || []);
+      setDettes(d.dettes || []);
+      setProspection(d.prospection || []);
+      setDispos(d.dispos);
+      setCodes({ ...DEFAULT_CODES, ...d.codes });
+      setAgency(d.agency);
+      setDevis(d.devis || []);
+      setGuides(d.guides);
+      setFormationLiens(d.formationLiens);
+      setPricing({ ...DEFAULT_PRICING, ...d.pricing });
+      setArchives([...archivesById.values()].sort((a, b) => a.period.localeCompare(b.period)));
+      setPeriod(d.period);
       setLoaded(true);
+
+      // Sauvegarde automatique quotidienne (une par jour, jamais ecrasee) :
+      // permet de restaurer n'importe quel jour en cas de probleme.
+      const today = new Date().toISOString().slice(0, 10);
+      const backupKey = `backup:${today}`;
+      const existing = await loadShared(backupKey, null);
+      if (!existing) await saveShared(backupKey, { savedAt: new Date().toISOString(), ...d });
     })();
-  }, []);
+  }, [loadAttempt]);
+
+  // Appli restee ouverte pendant le changement de mois (ex. ouverte le 30, reprise
+  // le 1er) : on recharge pour repartir des donnees a jour de la base, au lieu de
+  // continuer avec une copie perimee qui pourrait ecraser le travail des autres.
+  useEffect(() => {
+    if (!loaded || !period) return;
+    function checkMonth() {
+      if (document.visibilityState === "visible" && new Date().toISOString().slice(0, 7) !== period) {
+        window.location.reload();
+      }
+    }
+    document.addEventListener("visibilitychange", checkMonth);
+    const t = setInterval(checkMonth, 60000);
+    return () => { document.removeEventListener("visibilitychange", checkMonth); clearInterval(t); };
+  }, [loaded, period]);
 
   // Enregistrement centralise : toute panne d'ecriture devient visible a l'ecran
   // au lieu d'etre ignoree en silence.
@@ -1258,7 +1434,9 @@ export default function App() {
       return { id: m.id, name: m.name, color: m.color, rate, ca, commission: ca * rate / 100, clients: mine.length };
     });
     return {
-      id: `${periodLabel}-${Date.now()}`,
+      // Identifiant stable : deux appareils qui archivent le meme contenu produisent
+      // la meme archive (pas de doublon), et chaque archive a sa propre ligne en base.
+      id: `${periodLabel}-${prospects.length}-${expenses.length}-${dettes.length}-${totalCA}`,
       period: periodLabel,
       closedAt: new Date().toISOString(),
       goal, commissionRate,
@@ -1275,15 +1453,64 @@ export default function App() {
     const label = periodLabel || period || currentMonth();
     if (!(prospects.length || expenses.length || dettes.length)) return;
     const snap = buildSnapshot(label);
+    // Ligne dediee en base : meme si la liste "kbs:archives" etait un jour ecrasee,
+    // l'archive reste recuperable (elle est refusionnee au chargement).
+    saveShared(`archive:${snap.id}`, snap).then(err => { if (err) setSaveError(err); });
     setArchives(prev => {
       const exists = (prev || []).some(a =>
-        a.period === label && a.totalCA === snap.totalCA &&
+        a.id === snap.id || (a.period === label && a.totalCA === snap.totalCA &&
         (a.clients || []).length === snap.clients.length &&
         (a.expenses || []).length === snap.expenses.length &&
-        (a.dettes || []).length === snap.dettes.length);
+        (a.dettes || []).length === snap.dettes.length));
       if (exists) return prev;
       return [...(prev || []), snap].sort((a, b) => a.period.localeCompare(b.period));
     });
+  }
+  // Recree l'archive d'un mois a partir de clients retrouves (outil de recuperation).
+  function restoreArchive(periodLabel, clients) {
+    const ca = clients.reduce((s, p) => s + (Number(p.montant) || 0), 0);
+    const com = totalCommissionOf(clients, team, commissionRate);
+    const byMember = team.map(m => {
+      const mine = clients.filter(p => p.owner === m.id);
+      const mca = mine.reduce((s, p) => s + (Number(p.montant) || 0), 0);
+      const rate = memberRate(team, m.id, commissionRate);
+      return { id: m.id, name: m.name, color: m.color, rate, ca: mca, commission: mca * rate / 100, clients: mine.length };
+    });
+    const snap = {
+      id: `${periodLabel}-recupere-${clients.length}-${ca}`,
+      period: periodLabel, closedAt: new Date().toISOString(), recovered: true,
+      goal, commissionRate, totalCA: ca, totalCommission: com, totalDepenses: 0, beneficeNet: ca - com,
+      pctObjectif: Math.min(100, Math.round((ca / (goal || 1)) * 100)),
+      clients, expenses: [], dettes: [], byMember,
+    };
+    saveShared(`archive:${snap.id}`, snap).then(err => { if (err) setSaveError(err); });
+    setArchives(prev => [...(prev || []).filter(a => a.id !== snap.id), snap].sort((a, b) => a.period.localeCompare(b.period)));
+  }
+  function deleteArchive(a) {
+    setArchives(prev => (prev || []).filter(x => (x.id || x.period) !== (a.id || a.period)));
+    if (a.id) deleteShared(`archive:${a.id}`);
+  }
+
+  // Ce qui continue sur le nouveau mois apres archivage :
+  //  - un client qui a verse une avance et doit encore le solde -> reporte avec
+  //    seulement le reste a payer (le deja-paye reste compte dans le mois archive) ;
+  //  - un prospect pas encore paye et pas perdu -> reste dans le CRM ;
+  //  - une dette pas encore payee -> reste a suivre.
+  function carryOverProspects(list, fromLabel) {
+    return (list || []).flatMap(p => {
+      const paye = Number(p.montant) || 0;
+      const reste = resteAPayer(p);
+      if (reste > 0 && paye > 0) {
+        return [{ ...p, prixTotal: reste, paiements: [], montant: "", dejaPaye: (Number(p.dejaPaye) || 0) + paye, reportDe: fromLabel, statut: "En discussion" }];
+      }
+      if (paye === 0 && p.statut !== "Perdu" && p.statut !== "Payé") return [p];
+      return [];
+    });
+  }
+  function startNewMonth(fromLabel) {
+    setProspects(prev => carryOverProspects(prev, fromLabel));
+    setExpenses([]);
+    setDettes(prev => (prev || []).filter(d => d.statut !== "Payée"));
   }
 
   // Bascule automatique de mois : on archive le mois ecoule puis on remet les compteurs a zero.
@@ -1292,10 +1519,10 @@ export default function App() {
     const now = currentMonth();
     if (!period) { setPeriod(now); return; }   // Tout premier lancement : on marque le mois courant.
     if (period === now) return;                  // Toujours le meme mois : rien a faire.
+    // Copie de securite complete juste avant la bascule (jamais ecrasee).
+    saveShared(`backup:avant-bascule:${period}:${Date.now()}`, { savedAt: new Date().toISOString(), period, prospects, expenses, dettes, archives });
     archiveMonth(period);                        // Nouveau mois -> on fige le mois precedent...
-    setProspects([]);                            // ...puis on repart a zero pour le CA/commissions,
-    setExpenses([]);                             //    la tresorerie/depenses
-    setDettes([]);                               //    et les dettes.
+    startNewMonth(period);                       // ...puis on repart a zero (sauf soldes/dettes en cours).
     setPeriod(now);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loaded, period]);
@@ -1351,9 +1578,7 @@ export default function App() {
   function closeMonthManually(monthLabel) {
     const label = monthLabel || period || currentMonth();
     archiveMonth(label);
-    setProspects([]);
-    setExpenses([]);
-    setDettes([]);
+    startNewMonth(label);
     setPeriod(currentMonth());
   }
 
@@ -1381,6 +1606,7 @@ export default function App() {
     adminTarifs: { label: "Tarifs", icon: Banknote },
     adminFormation: { label: "Formation", icon: BookOpen },
     adminCaisse: { label: "Caisse Perso", icon: Wallet },
+    adminRecup: { label: "Récupération", icon: History },
     adminReset: { label: "Réinitialisation", icon: AlertTriangle },
     formation: { label: "Formation", icon: BookOpen },
     archives: { label: "Archives", icon: Archive },
@@ -1391,7 +1617,7 @@ export default function App() {
     { id: "ventes", label: "Ventes & Finance", icon: Wallet, tabs: ["crm", "devis", "tresorerie", "dettes", "tarifs", "archives"] },
     { id: "marketing", label: "Marketing", icon: Flame, tabs: ["cible", "copywriting", "prospection", "terrain"] },
     { id: "ressources", label: "Ressources", icon: Sparkles, tabs: ["outils", "academie", "plan", "liens", "formation"] },
-    { id: "admin", label: "Administration", icon: Shield, tabs: ["adminEquipe", "adminDiagnostics", "adminCodes", "adminAgence", "adminTarifs", "adminFormation", "adminCaisse", "adminReset"] },
+    { id: "admin", label: "Administration", icon: Shield, tabs: ["adminEquipe", "adminDiagnostics", "adminCodes", "adminAgence", "adminTarifs", "adminFormation", "adminCaisse", "adminRecup", "adminReset"] },
   ];
 
   function selectCategory(catId) {
@@ -1414,7 +1640,13 @@ export default function App() {
       <style>{FONT_IMPORT}</style>
 
       {!loaded ? (
-        <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", color: C.muted, fontSize: 13 }}>Chargement…</div>
+        <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", gap: 12, alignItems: "center", justifyContent: "center", color: C.muted, fontSize: 13, padding: 24, textAlign: "center" }}>
+          {loadError ? (<>
+            <AlertTriangle size={26} color={C.rustLight} />
+            <div style={{ color: C.text, maxWidth: 360 }}>{loadError}</div>
+            <button onClick={() => setLoadAttempt(n => n + 1)} style={{ ...btnGold, width: "auto", padding: "10px 18px" }}><RefreshCw size={14} /> Réessayer</button>
+          </>) : "Chargement…"}
+        </div>
       ) : !unlocked ? (
         <LoginScreen onUnlock={() => setUnlocked(true)} codes={codes} />
       ) : (
@@ -1511,7 +1743,7 @@ export default function App() {
         {tab === "tresorerie" && <TabTresorerie prospects={prospects} setProspects={setProspects} expenses={expenses} setExpenses={setExpenses} totalCA={totalCA} totalCommission={totalCommission} totalDepenses={totalDepenses} beneficeNet={beneficeNet} team={team} codes={codes} commissionRate={commissionRate} />}
         {tab === "dettes" && <TabDettes dettes={dettes} setDettes={setDettes} prospects={prospects} />}
         {tab === "tarifs" && <TabTarifs pricing={pricing} />}
-        {tab === "archives" && <TabArchives archives={archives} period={period} team={team} />}
+        {tab === "archives" && <TabArchives archives={archives} period={period} team={team} codes={codes} onDelete={deleteArchive} />}
         {tab === "cible" && <TabCible />}
         {tab === "copywriting" && <TabCopywriting />}
         {tab === "prospection" && <TabProspection prospection={prospection} setProspection={setProspection} prospects={prospects} setProspects={setProspects} team={team} pricing={pricing} allServicesFlat={allServicesFlat} />}
@@ -1529,7 +1761,7 @@ export default function App() {
             {tab === "formation" && <TabFormation team={team} codes={codes} guides={guides} formationLiens={formationLiens} />}
           </>
         )}
-        {category === "admin" && <TabAdministration section={tab} caisse={caisse} setCaisse={setCaisse} team={team} setTeam={setTeam} codes={codes} setCodes={setCodes} onResetAll={resetAllData} onCloseMonth={closeMonthManually} currentMonth={currentMonth()} agency={agency} setAgency={setAgency} guides={guides} setGuides={setGuides} formationLiens={formationLiens} setFormationLiens={setFormationLiens} pricing={pricing} setPricing={setPricing} commissionRate={commissionRate} setCommissionRate={setCommissionRate} />}
+        {category === "admin" && <TabAdministration section={tab} caisse={caisse} setCaisse={setCaisse} team={team} setTeam={setTeam} codes={codes} setCodes={setCodes} onResetAll={resetAllData} onCloseMonth={closeMonthManually} onRestoreArchive={restoreArchive} currentMonth={currentMonth()} agency={agency} setAgency={setAgency} guides={guides} setGuides={setGuides} formationLiens={formationLiens} setFormationLiens={setFormationLiens} pricing={pricing} setPricing={setPricing} commissionRate={commissionRate} setCommissionRate={setCommissionRate} />}
       </div>
       </div>
       )}
@@ -1633,22 +1865,51 @@ function TabCRM({ prospects, setProspects, totalCA, totalCommission, team, codes
   const [form, setForm] = useState({
     nom: "", prenom: "", whatsapp: "", email: "", adresse: "", quartier: "",
     dateInscription: new Date().toISOString().slice(0, 10),
-    pack: pricing.packs[0]?.name || "", statut: "À contacter", montant: "", owner: team[0]?.id || ""
+    pack: pricing.packs[0]?.name || "", statut: "À contacter", prixTotal: "", montant: "", owner: team[0]?.id || ""
   });
   const [catherineUnlocked, setCatherineUnlocked] = useState(false);
   const [expandedId, setExpandedId] = useState(null);
+  const [editingId, setEditingId] = useState(null);
   const [noteText, setNoteText] = useState("");
+  const [payForm, setPayForm] = useState({ montant: "", date: new Date().toISOString().slice(0, 10), note: "" });
 
   function addProspect() {
     if (!form.nom.trim()) return;
-    setProspects([...prospects, { ...form, id: Date.now(), historique: [] }]);
+    const today = new Date().toISOString().slice(0, 10);
+    const avance = Number(form.montant) || 0;
+    const paiements = avance > 0 ? [{ id: Date.now(), date: form.dateInscription || today, montant: avance, note: Number(form.prixTotal) > avance ? "Avance" : "Paiement" }] : [];
+    setProspects([...prospects, withPayments({ ...form, id: Date.now(), historique: [] }, paiements)]);
     notifyTeam("Nouveau client 🎉", `${form.prenom || ""} ${form.nom}`.trim() + " vient d'être ajouté au CRM.", "crm");
-    setForm({ nom: "", prenom: "", whatsapp: "", email: "", adresse: "", quartier: "", dateInscription: new Date().toISOString().slice(0, 10), pack: pricing.packs[0]?.name || "", statut: "À contacter", montant: "", owner: team[0]?.id || "" });
+    setForm({ nom: "", prenom: "", whatsapp: "", email: "", adresse: "", quartier: "", dateInscription: today, pack: pricing.packs[0]?.name || "", statut: "À contacter", prixTotal: "", montant: "", owner: team[0]?.id || "" });
   }
   function updateStatut(id, statut) {
     setProspects(prospects.map(p => p.id === id ? { ...p, statut } : p));
   }
-  function removeProspect(id) { setProspects(prospects.filter(p => p.id !== id)); }
+  function removeProspect(p) {
+    if (!confirmDelete(`le client « ${`${p.prenom || ""} ${p.nom}`.trim()} »`)) return;
+    setProspects(prospects.filter(x => x.id !== p.id));
+  }
+  function saveProspectEdit(id, f) {
+    // Le prix total peut changer : on recalcule le statut "Payé" a partir des versements.
+    setProspects(prospects.map(p => p.id === id ? withPayments({ ...p, ...f }, paymentsOf(p)) : p));
+    setEditingId(null);
+  }
+  function addPayment(p) {
+    const m = Number(payForm.montant) || 0;
+    if (m <= 0) return;
+    const next = [...paymentsOf(p), { id: Date.now(), date: payForm.date || new Date().toISOString().slice(0, 10), montant: m, note: payForm.note.trim() }];
+    const updated = withPayments(p, next);
+    setProspects(prospects.map(x => x.id === p.id ? updated : x));
+    const reste = resteAPayer(updated);
+    notifyTeam("Paiement reçu 💰", `${`${p.prenom || ""} ${p.nom}`.trim()} a versé ${fcfa(m)}${prixTotalOf(p) ? (reste > 0 ? ` — reste ${fcfa(reste)}` : " — soldé ✅") : ""}.`, "crm");
+    setPayForm({ montant: "", date: new Date().toISOString().slice(0, 10), note: "" });
+  }
+  function removePayment(p, payId) {
+    if (!confirmDelete("ce versement")) return;
+    const updated = withPayments(p, paymentsOf(p).filter(x => x.id !== payId));
+    setProspects(prospects.map(x => x.id === p.id ? updated : x));
+  }
+  const totalReste = prospects.reduce((s, p) => s + resteAPayer(p), 0);
   function addHistorique(id) {
     if (!noteText.trim()) return;
     setProspects(prospects.map(p => p.id === id
@@ -1693,8 +1954,24 @@ function TabCRM({ prospects, setProspects, totalCA, totalCommission, team, codes
               <select value={form.owner} onChange={e => setForm({ ...form, owner: e.target.value })} style={{ ...inputStyle, flex: 1 }}>
                 {team.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
               </select>
-              <input type="number" placeholder="Montant payé (FCFA)" value={form.montant} onChange={e => setForm({ ...form, montant: e.target.value })} style={{ ...inputStyle, flex: 1 }} />
             </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <label style={{ flex: 1, fontSize: 11, color: C.muted, display: "flex", flexDirection: "column", gap: 3 }}>
+                Prix total du service (FCFA)
+                <input type="number" placeholder="Ex : 25000" value={form.prixTotal} onChange={e => setForm({ ...form, prixTotal: e.target.value })} style={inputStyle} />
+              </label>
+              <label style={{ flex: 1, fontSize: 11, color: C.muted, display: "flex", flexDirection: "column", gap: 3 }}>
+                Payé maintenant / avance (FCFA)
+                <input type="number" placeholder="Ex : 15000" value={form.montant} onChange={e => setForm({ ...form, montant: e.target.value })} style={inputStyle} />
+              </label>
+            </div>
+            {Number(form.prixTotal) > 0 && (
+              <div style={{ fontSize: 11.5, color: Number(form.montant) >= Number(form.prixTotal) ? C.greenLight : C.goldLight }}>
+                {Number(form.montant) >= Number(form.prixTotal)
+                  ? "✓ Paiement complet."
+                  : `Reste à payer : ${fcfa(Number(form.prixTotal) - (Number(form.montant) || 0))} — tu pourras ajouter le solde plus tard dans la fiche du client.`}
+              </div>
+            )}
             <button onClick={addProspect} style={btnGold}><Plus size={14} /> Ajouter le client</button>
           </div>
         ) : (
@@ -1712,11 +1989,20 @@ function TabCRM({ prospects, setProspects, totalCA, totalCommission, team, codes
           <div style={{ fontWeight: 800, fontFamily: "Baloo 2, sans-serif", color: C.greenLight }}>{fcfa(totalCommission)}</div>
         </Card>
       </div>
+      {totalReste > 0 && (
+        <Card style={{ textAlign: "center", borderColor: C.gold }}>
+          <div style={{ fontSize: 11, color: C.muted }}>Reste à encaisser (avances en cours)</div>
+          <div style={{ fontWeight: 800, fontFamily: "Baloo 2, sans-serif", color: C.goldLight }}>{fcfa(totalReste)}</div>
+        </Card>
+      )}
 
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         {prospects.length === 0 && <div style={{ color: C.muted, fontSize: 13, textAlign: "center", padding: 20 }}>Aucun client pour l'instant. Ajoute le premier ci-dessus.</div>}
         {prospects.slice().reverse().map(p => {
           const expanded = expandedId === p.id;
+          const editing = editingId === p.id;
+          const payStatus = paymentStatus(p);
+          const reste = resteAPayer(p);
           return (
           <Card key={p.id}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "start" }}>
@@ -1724,15 +2010,38 @@ function TabCRM({ prospects, setProspects, totalCA, totalCommission, team, codes
                 <div style={{ fontWeight: 700, fontSize: 14 }}>{p.prenom} {p.nom}</div>
                 <div style={{ fontSize: 12, color: C.muted }}>{p.whatsapp} · {p.pack}</div>
                 <div style={{ fontSize: 12, color: C.muted }}>Suivi par : {team.find(m => m.id === p.owner)?.name}</div>
-                {!expanded && <div style={{ fontSize: 11, color: C.gold, marginTop: 4 }}>📄 Fiche, reçu WhatsApp & historique →</div>}
+                {p.reportDe && <div style={{ fontSize: 11, color: C.goldLight }}>↪ Reporté de {p.reportDe}{p.dejaPaye ? ` (déjà payé ${fcfa(p.dejaPaye)} avant)` : ""}</div>}
+                {!expanded && <div style={{ fontSize: 11, color: C.gold, marginTop: 4 }}>📄 Fiche, paiements, reçu WhatsApp & historique →</div>}
               </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                {catherineUnlocked && <button onClick={() => removeProspect(p.id)} style={{ background: "none", border: "none", color: C.rustLight, cursor: "pointer" }}><Trash2 size={16} /></button>}
+              <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                {catherineUnlocked && (
+                  <EditDeleteButtons editing={editing}
+                    onEdit={() => setEditingId(editing ? null : p.id)}
+                    onDelete={() => removeProspect(p)} />
+                )}
                 <button onClick={() => setExpandedId(expanded ? null : p.id)} style={{ background: "none", border: "none", color: C.gold, cursor: "pointer" }}>
                   {expanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
                 </button>
               </div>
             </div>
+            {editing && (
+              <EditFields
+                value={{ nom: p.nom || "", prenom: p.prenom || "", whatsapp: p.whatsapp || "", email: p.email || "", adresse: p.adresse || "", quartier: p.quartier || "", dateInscription: p.dateInscription || "", pack: p.pack || "", owner: p.owner || "", prixTotal: p.prixTotal ?? "" }}
+                fields={[
+                  { key: "nom", label: "Nom" },
+                  { key: "prenom", label: "Prénom" },
+                  { key: "whatsapp", label: "WhatsApp" },
+                  { key: "email", label: "Email" },
+                  { key: "adresse", label: "Adresse" },
+                  { key: "quartier", label: "Quartier" },
+                  { key: "dateInscription", label: "Date d'inscription", type: "date" },
+                  { key: "pack", label: "Service / pack" },
+                  { key: "owner", label: "Suivi par", type: "select", options: team.map(m => ({ value: m.id, label: m.name })) },
+                  { key: "prixTotal", label: "Prix total du service (FCFA) — laisser vide si payé en une fois", type: "number" },
+                ]}
+                onSave={(f) => saveProspectEdit(p.id, f)}
+                onCancel={() => setEditingId(null)} />
+            )}
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 8 }}>
               {catherineUnlocked ? (
                 <select value={p.statut} onChange={e => updateStatut(p.id, e.target.value)} style={{ ...inputStyle, padding: "4px 8px", fontSize: 12, width: "auto" }}>
@@ -1741,7 +2050,14 @@ function TabCRM({ prospects, setProspects, totalCA, totalCommission, team, codes
               ) : (
                 <span style={{ fontSize: 12, color: C.muted, background: C.cardAlt, padding: "4px 8px", borderRadius: 6 }}>{p.statut}</span>
               )}
-              <div style={{ fontSize: 13, fontWeight: 700, color: C.goldLight }}>{fcfa(p.montant)}</div>
+              <div style={{ textAlign: "right" }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: C.goldLight }}>{fcfa(p.montant)}{prixTotalOf(p) ? <span style={{ color: C.muted, fontWeight: 600 }}> / {fcfa(prixTotalOf(p))}</span> : null}</div>
+                {payStatus && (
+                  <div style={{ fontSize: 11, fontWeight: 800, color: payStatus === "Soldé" ? C.greenLight : payStatus === "Avance" ? C.goldLight : C.rustLight }}>
+                    {payStatus === "Soldé" ? "✓ Soldé" : `${payStatus} · reste ${fcfa(reste)}`}
+                  </div>
+                )}
+              </div>
             </div>
             {Number(p.montant) > 0 && <div style={{ fontSize: 11, color: C.greenLight, marginTop: 4 }}>Commission ({memberRate(team, p.owner, commissionRate)}%) : {fcfa(commissionOf(p, team, commissionRate))}</div>}
 
@@ -1753,6 +2069,43 @@ function TabCRM({ prospects, setProspects, totalCA, totalCommission, team, codes
                   <div><span style={{ color: C.muted }}>Quartier : </span>{p.quartier || "—"}</div>
                   <div><span style={{ color: C.muted }}>Date d'inscription : </span>{p.dateInscription || "—"}</div>
                 </div>
+
+                <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 6 }}>
+                  <Banknote size={13} color={C.gold} />
+                  <span style={{ fontSize: 12, fontWeight: 700, color: C.gold, textTransform: "uppercase", letterSpacing: 0.5 }}>Paiements</span>
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 8 }}>
+                  {paymentsOf(p).length === 0 && <div style={{ fontSize: 11.5, color: C.muted }}>Aucun paiement reçu pour l'instant.</div>}
+                  {paymentsOf(p).map(pay => (
+                    <div key={pay.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: C.cardAlt, borderRadius: 8, padding: 8, fontSize: 12 }}>
+                      <div><span style={{ color: C.muted }}>{pay.date || "—"}{pay.note ? ` · ${pay.note}` : ""}</span></div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <b style={{ color: C.greenLight }}>+{fcfa(pay.montant)}</b>
+                        {catherineUnlocked && <button onClick={() => removePayment(p, pay.id)} style={{ background: "none", border: "none", color: C.rustLight, cursor: "pointer" }}><Trash2 size={12} /></button>}
+                      </div>
+                    </div>
+                  ))}
+                  {prixTotalOf(p) > 0 && (
+                    <div style={{ fontSize: 12, color: reste > 0 ? C.goldLight : C.greenLight, fontWeight: 700 }}>
+                      Payé {fcfa(p.montant)} sur {fcfa(prixTotalOf(p))}{reste > 0 ? ` — reste ${fcfa(reste)}` : " — soldé ✓"}
+                    </div>
+                  )}
+                </div>
+                {catherineUnlocked ? (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 12 }}>
+                    <div style={{ display: "flex", gap: 6 }}>
+                      <input type="number" placeholder={reste > 0 ? `Montant (reste ${reste})` : "Montant reçu"} value={payForm.montant} onChange={e => setPayForm({ ...payForm, montant: e.target.value })} style={{ ...inputStyle, flex: 1, fontSize: 12 }} />
+                      <input type="date" value={payForm.date} onChange={e => setPayForm({ ...payForm, date: e.target.value })} style={{ ...inputStyle, flex: 1, fontSize: 12 }} />
+                    </div>
+                    <div style={{ display: "flex", gap: 6 }}>
+                      <input placeholder="Note (ex : solde, 2e tranche…)" value={payForm.note} onChange={e => setPayForm({ ...payForm, note: e.target.value })} style={{ ...inputStyle, flex: 1, fontSize: 12 }} />
+                      <button onClick={() => addPayment(p)} style={{ ...btnGold, width: "auto", padding: "0 12px", fontSize: 12 }}><Plus size={13} /> Ajouter un paiement</button>
+                    </div>
+                    {!prixTotalOf(p) && <div style={{ fontSize: 10.5, color: C.muted }}>Astuce : renseigne le « prix total » (crayon ✏️) pour voir automatiquement le reste à payer.</div>}
+                  </div>
+                ) : (
+                  <div style={{ fontSize: 11, color: C.muted, marginBottom: 12 }}>🔒 Déverrouille avec le code Catherine (en haut) pour ajouter un paiement.</div>
+                )}
 
                 <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 6 }}>
                   <FileText size={13} color={C.gold} />
@@ -2457,16 +2810,33 @@ function TabDevis({ devis, setDevis, prospects, team, agency }) {
   }
   function addItem() { setForm({ ...form, items: [...form.items, { label: "", qte: 1, prix: "" }] }); }
   function removeItem(idx) { setForm({ ...form, items: form.items.filter((_, i) => i !== idx) }); }
+  const [editingId, setEditingId] = useState(null); // devis en cours de modification
+  const emptyForm = { clientNom: "", whatsapp: "", validite: "", notes: "", linkedId: "", items: [{ label: "", qte: 1, prix: "" }] };
   function addDevis() {
     if (!form.clientNom.trim()) return;
     const items = form.items.filter(it => it.label.trim());
     if (!items.length) return;
-    setDevis([...devis, { ...form, items, id: Date.now(), date: new Date().toISOString().slice(0, 10), statut: "Envoyé" }]);
-    notifyTeam("Nouveau devis 📄", `Devis pour ${form.clientNom}`, "devis");
-    setForm({ clientNom: "", whatsapp: "", validite: "", notes: "", linkedId: "", items: [{ label: "", qte: 1, prix: "" }] });
+    if (editingId) {
+      setDevis(devis.map(d => d.id === editingId ? { ...d, ...form, items } : d));
+      setEditingId(null);
+    } else {
+      setDevis([...devis, { ...form, items, id: Date.now(), date: new Date().toISOString().slice(0, 10), statut: "Envoyé" }]);
+      notifyTeam("Nouveau devis 📄", `Devis pour ${form.clientNom}`, "devis");
+    }
+    setForm(emptyForm);
   }
+  function startEdit(d) {
+    setEditingId(d.id);
+    setForm({ clientNom: d.clientNom || "", whatsapp: d.whatsapp || "", validite: d.validite || "", notes: d.notes || "", linkedId: d.linkedId || "", items: (d.items && d.items.length) ? d.items : emptyForm.items });
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+  function cancelEdit() { setEditingId(null); setForm(emptyForm); }
   function updateStatut(id, statut) { setDevis(devis.map(d => d.id === id ? { ...d, statut } : d)); }
-  function removeDevis(id) { setDevis(devis.filter(d => d.id !== id)); }
+  function removeDevis(d) {
+    if (!confirmDelete(`le devis de « ${d.clientNom} »`)) return;
+    setDevis(devis.filter(x => x.id !== d.id));
+    if (editingId === d.id) cancelEdit();
+  }
   function total(items) { return (items || []).reduce((s, it) => s + (Number(it.qte) || 1) * (Number(it.prix) || 0), 0); }
 
   const statuts = ["Envoyé", "Accepté", "Refusé"];
@@ -2479,7 +2849,10 @@ function TabDevis({ devis, setDevis, prospects, team, agency }) {
       </Card>
 
       <Card>
-        <Eyebrow>Nouveau devis</Eyebrow>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <Eyebrow>{editingId ? "Modifier le devis" : "Nouveau devis"}</Eyebrow>
+          {editingId && <button onClick={cancelEdit} style={{ background: "none", border: "none", color: C.muted, fontSize: 12, fontWeight: 700, cursor: "pointer" }}>Annuler</button>}
+        </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 8 }}>
           <select value={form.linkedId} onChange={e => pickClient(e.target.value)} style={inputStyle}>
             <option value="">— Choisir un client existant (optionnel) —</option>
@@ -2509,7 +2882,7 @@ function TabDevis({ devis, setDevis, prospects, team, agency }) {
             <span>Total du devis</span><span>{fcfa(total(form.items))}</span>
           </div>
 
-          <button onClick={addDevis} style={btnGold}><Plus size={14} /> Créer le devis</button>
+          <button onClick={addDevis} style={btnGold}>{editingId ? <><Save size={14} /> Enregistrer les modifications</> : <><Plus size={14} /> Créer le devis</>}</button>
         </div>
       </Card>
 
@@ -2522,7 +2895,7 @@ function TabDevis({ devis, setDevis, prospects, team, agency }) {
                 <div style={{ fontWeight: 700, fontSize: 14 }}>{d.clientNom}</div>
                 <div style={{ fontSize: 12, color: C.muted }}>{d.date}{d.validite ? ` · Valable jusqu'au ${d.validite}` : ""}</div>
               </div>
-              <button onClick={() => removeDevis(d.id)} style={{ background: "none", border: "none", color: C.rustLight, cursor: "pointer" }}><Trash2 size={16} /></button>
+              <EditDeleteButtons editing={editingId === d.id} onEdit={() => editingId === d.id ? cancelEdit() : startEdit(d)} onDelete={() => removeDevis(d)} />
             </div>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 8 }}>
               <select value={d.statut} onChange={e => updateStatut(d.id, e.target.value)} style={{ ...inputStyle, padding: "4px 8px", fontSize: 12, width: "auto", color: statutColor[d.statut] }}>
@@ -2567,8 +2940,15 @@ function TabKanban({ kanban, setKanban, checks, setChecks, team, codes }) {
     const task = kanban[colId].find(t => t.id === taskId);
     setKanban({ ...kanban, [colId]: kanban[colId].filter(t => t.id !== taskId), [target]: [...kanban[target], task] });
   }
+  const [editingTask, setEditingTask] = useState(null);
   function removeTask(colId, taskId) {
+    if (!confirmDelete("cette tâche")) return;
     setKanban({ ...kanban, [colId]: kanban[colId].filter(t => t.id !== taskId) });
+  }
+  function saveTask(colId, taskId, f) {
+    if (!f.text.trim()) return;
+    setKanban({ ...kanban, [colId]: kanban[colId].map(t => t.id === taskId ? { ...t, text: f.text, assignedTo: f.assignedTo } : t) });
+    setEditingTask(null);
   }
   function canEdit(personId) { return adminUnlocked || myUnlock === personId; }
   // Une tâche sans responsable (ancienne tâche) reste modifiable par tout le monde.
@@ -2585,7 +2965,6 @@ function TabKanban({ kanban, setKanban, checks, setChecks, team, codes }) {
   }
   function tryUnlockMine() {
     const member = team.find(m => m.id === whoPicker);
-    // Strict : le code de secours n'ouvre pas les tâches/checklist d'un autre membre.
     if (member && codeMatchesStrict(unlockCode, member.code)) { setMyUnlock(member.id); setUnlockError(false); setUnlockCode(""); }
     else setUnlockError(true);
   }
@@ -2638,23 +3017,34 @@ function TabKanban({ kanban, setKanban, checks, setChecks, team, codes }) {
                 {(kanban[col.id] || []).map(t => {
                   const editable = canEditTask(t);
                   const who = team.find(m => m.id === t.assignedTo);
+                  const isEditing = editingTask === t.id;
                   return (
-                    <div key={t.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, background: C.cardAlt, borderRadius: 8, padding: "8px 10px" }}>
+                    <div key={t.id} style={{ background: C.cardAlt, borderRadius: 8, padding: "8px 10px" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
                       <div style={{ display: "flex", flexDirection: "column", gap: 3, minWidth: 0, flex: 1 }}>
                         <span style={{ fontSize: 13 }}>{t.text}</span>
                         {who && <span style={{ fontSize: 10.5, fontWeight: 700, color: editable ? C.goldLight : C.muted }}>{who.name}{editable ? "" : " 🔒"}</span>}
                       </div>
-                      <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                      <div style={{ display: "flex", gap: 6, flexShrink: 0, alignItems: "center" }}>
                         {editable ? (
                           <>
                             {colIdx > 0 && <button onClick={() => move(col.id, t.id, -1)} style={iconBtn}>←</button>}
                             {colIdx < 3 && <button onClick={() => move(col.id, t.id, 1)} style={iconBtn}>→</button>}
-                            <button onClick={() => removeTask(col.id, t.id)} style={iconBtn}><Trash2 size={12} /></button>
+                            <EditDeleteButtons editing={isEditing} onEdit={() => setEditingTask(isEditing ? null : t.id)} onDelete={() => removeTask(col.id, t.id)} />
                           </>
                         ) : (
                           <Lock size={13} color={C.muted} />
                         )}
                       </div>
+                    </div>
+                    {isEditing && (
+                      <EditFields value={{ text: t.text || "", assignedTo: t.assignedTo || team[0]?.id || "" }}
+                        fields={[
+                          { key: "text", label: "Tâche", type: "textarea" },
+                          { key: "assignedTo", label: "Pour", type: "select", options: team.map(m => ({ value: m.id, label: m.name })) },
+                        ]}
+                        onSave={(f) => saveTask(col.id, t.id, f)} onCancel={() => setEditingTask(null)} />
+                    )}
                     </div>
                   );
                 })}
@@ -2960,7 +3350,15 @@ function TabTresorerie({ prospects, setProspects, expenses, setExpenses, totalCA
     notifyTeam("Nouvelle dépense 💸", `${form.label} — ${fcfa(form.montant)}`, "tresorerie");
     setForm({ label: "", categorie: DEPENSES_CATEGORIES[0], montant: "", addedBy: team[0]?.id || "" });
   }
-  function removeExpense(id) { setExpenses(expenses.filter(e => e.id !== id)); }
+  const [editingExp, setEditingExp] = useState(null);
+  function removeExpense(e) {
+    if (!confirmDelete(`la dépense « ${e.label} »`)) return;
+    setExpenses(expenses.filter(x => x.id !== e.id));
+  }
+  function saveExpense(id, f) {
+    setExpenses(expenses.map(e => e.id === id ? { ...e, ...f } : e));
+    setEditingExp(null);
+  }
   function updateSuivi(id, suivi) { setProspects(prospects.map(p => p.id === id ? { ...p, suivi } : p)); }
 
   return (
@@ -3023,9 +3421,20 @@ function TabTresorerie({ prospects, setProspects, expenses, setExpenses, totalCA
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                   <div style={{ fontWeight: 700, color: C.rustLight, fontSize: 13 }}>-{fcfa(e.montant)}</div>
-                  {catherineUnlocked && <button onClick={() => removeExpense(e.id)} style={{ background: "none", border: "none", color: C.rustLight, cursor: "pointer" }}><Trash2 size={15} /></button>}
+                  {catherineUnlocked && <EditDeleteButtons editing={editingExp === e.id} onEdit={() => setEditingExp(editingExp === e.id ? null : e.id)} onDelete={() => removeExpense(e)} />}
                 </div>
               </div>
+              {editingExp === e.id && (
+                <EditFields value={{ label: e.label || "", categorie: e.categorie || DEPENSES_CATEGORIES[0], montant: e.montant ?? "", date: e.date || "", addedBy: e.addedBy || "" }}
+                  fields={[
+                    { key: "label", label: "Description" },
+                    { key: "categorie", label: "Catégorie", type: "select", options: DEPENSES_CATEGORIES },
+                    { key: "montant", label: "Montant (FCFA)", type: "number" },
+                    { key: "date", label: "Date", type: "date" },
+                    { key: "addedBy", label: "Ajoutée par", type: "select", options: team.map(m => ({ value: m.id, label: m.name })) },
+                  ]}
+                  onSave={(f) => saveExpense(e.id, f)} onCancel={() => setEditingExp(null)} />
+              )}
             </Card>
           ))}
         </div>
@@ -3071,7 +3480,15 @@ function TabDettes({ dettes, setDettes, prospects }) {
     setForm({ clientNom: "", whatsapp: "", service: "", montantDu: "", dateEcheance: today, statut: "En attente", linkedId: "" });
   }
   function markPaid(id) { setDettes(dettes.map(d => d.id === id ? { ...d, statut: "Payée" } : d)); }
-  function removeDette(id) { setDettes(dettes.filter(d => d.id !== id)); }
+  const [editingDette, setEditingDette] = useState(null);
+  function removeDette(d) {
+    if (!confirmDelete(`la dette de « ${d.clientNom} »`)) return;
+    setDettes(dettes.filter(x => x.id !== d.id));
+  }
+  function saveDette(id, f) {
+    setDettes(dettes.map(d => d.id === id ? { ...d, ...f } : d));
+    setEditingDette(null);
+  }
 
   function urgency(d) {
     if (d.statut === "Payée") return "payee";
@@ -3129,8 +3546,20 @@ function TabDettes({ dettes, setDettes, prospects }) {
                   <div style={{ fontSize: 12, color: C.muted }}>{d.service}</div>
                   <div style={{ fontSize: 12, color: C.muted }}>Échéance : {d.dateEcheance}</div>
                 </div>
-                <button onClick={() => removeDette(d.id)} style={{ background: "none", border: "none", color: C.rustLight, cursor: "pointer" }}><Trash2 size={16} /></button>
+                <EditDeleteButtons editing={editingDette === d.id} onEdit={() => setEditingDette(editingDette === d.id ? null : d.id)} onDelete={() => removeDette(d)} />
               </div>
+              {editingDette === d.id && (
+                <EditFields value={{ clientNom: d.clientNom || "", whatsapp: d.whatsapp || "", service: d.service || "", montantDu: d.montantDu ?? "", dateEcheance: d.dateEcheance || "", statut: d.statut || "En attente" }}
+                  fields={[
+                    { key: "clientNom", label: "Nom du client" },
+                    { key: "whatsapp", label: "WhatsApp" },
+                    { key: "service", label: "Service concerné" },
+                    { key: "montantDu", label: "Montant dû (FCFA)", type: "number" },
+                    { key: "dateEcheance", label: "Échéance", type: "date" },
+                    { key: "statut", label: "Statut", type: "select", options: ["En attente", "Payée"] },
+                  ]}
+                  onSave={(f) => saveDette(d.id, f)} onCancel={() => setEditingDette(null)} />
+              )}
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 8 }}>
                 <span style={{ fontSize: 11, fontWeight: 700, color, background: "rgba(255,255,255,0.06)", padding: "3px 8px", borderRadius: 6 }}>{label}</span>
                 <div style={{ fontWeight: 700, color: C.goldLight, fontSize: 13 }}>{fcfa(d.montantDu)}</div>
@@ -3245,7 +3674,16 @@ function TabProspection({ prospection, setProspection, prospects, setProspects, 
     setForm({ nom: "", whatsapp: "", source: "", commentaire: "", interet: "Chaud", statut: "À répondu", scriptUtilise: DM_SCRIPTS[0].stage, note: "" });
   }
   function updateStatut(id, statut) { setProspection(prospection.map(p => p.id === id ? { ...p, statut } : p)); }
-  function removeEntry(id) { setProspection(prospection.filter(p => p.id !== id)); }
+  const [editingEntry, setEditingEntry] = useState(null);
+  function removeEntry(id) { setProspection(prev => prev.filter(p => p.id !== id)); }
+  function deleteEntry(p) {
+    if (!confirmDelete(`le contact « ${p.nom} »`)) return;
+    removeEntry(p.id);
+  }
+  function saveEntry(id, f) {
+    setProspection(prospection.map(p => p.id === id ? { ...p, ...f } : p));
+    setEditingEntry(null);
+  }
   function convertToClient(p) {
     setProspects([...prospects, {
       id: Date.now(), nom: p.nom, prenom: "", whatsapp: p.whatsapp, email: "", adresse: "", quartier: "",
@@ -3318,8 +3756,20 @@ function TabProspection({ prospection, setProspection, prospects, setProspects, 
                   <div style={{ fontSize: 12, color: C.muted }}>{p.whatsapp} · {p.source}</div>
                   <div style={{ fontSize: 11.5, color: C.muted, marginTop: 2 }}>"{p.commentaire}"</div>
                 </div>
-                <button onClick={() => removeEntry(p.id)} style={{ background: "none", border: "none", color: C.rustLight, cursor: "pointer" }}><Trash2 size={16} /></button>
+                <EditDeleteButtons editing={editingEntry === p.id} onEdit={() => setEditingEntry(editingEntry === p.id ? null : p.id)} onDelete={() => deleteEntry(p)} />
               </div>
+              {editingEntry === p.id && (
+                <EditFields value={{ nom: p.nom || "", whatsapp: p.whatsapp || "", source: p.source || "", commentaire: p.commentaire || "", interet: p.interet || "Chaud", scriptUtilise: p.scriptUtilise || DM_SCRIPTS[0].stage }}
+                  fields={[
+                    { key: "nom", label: "Nom & Prénom" },
+                    { key: "whatsapp", label: "WhatsApp" },
+                    { key: "source", label: "Source" },
+                    { key: "commentaire", label: "Commentaire vu", type: "textarea" },
+                    { key: "interet", label: "Intérêt", type: "select", options: INTERET_NIVEAUX },
+                    { key: "scriptUtilise", label: "Script utilisé", type: "select", options: DM_SCRIPTS.map(s => s.stage) },
+                  ]}
+                  onSave={(f) => saveEntry(p.id, f)} onCancel={() => setEditingEntry(null)} />
+              )}
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 8, flexWrap: "wrap", gap: 6 }}>
                 <select value={p.statut} onChange={e => updateStatut(p.id, e.target.value)} style={{ ...inputStyle, padding: "4px 8px", fontSize: 12, width: "auto" }}>
                   {PROSPECTION_STATUTS.map(s => <option key={s} value={s}>{s}</option>)}
@@ -3519,6 +3969,8 @@ function PricingListEditor({ title, rows, onChange, priceMode }) {
                 <input value={r.note || ""} onChange={e => updateRow(idx, { note: e.target.value })} style={{ ...inputStyle, flex: "1 1 100px" }} placeholder="Note (ex: Sur devis)" />
               </>
             )}
+            <button aria-label="Supprimer" onClick={() => { if (confirmDelete(`l'offre « ${r.name} »`)) onChange(rows.filter((_, i) => i !== idx)); }}
+              style={{ background: "none", border: "none", color: C.rustLight, cursor: "pointer", padding: 4 }}><Trash2 size={15} /></button>
           </div>
         ))}
         {rows.length === 0 && <div style={{ color: C.muted, fontSize: 12, textAlign: "center", padding: 10 }}>Aucune offre pour l'instant.</div>}
@@ -3547,6 +3999,16 @@ function TabLiens({ links, setLinks, team }) {
     setLinks([...links, { ...form, id: Date.now() }]);
     setForm({ label: "", url: "", addedBy: team[0]?.id || "" });
   }
+  const [editingLink, setEditingLink] = useState(null);
+  function removeLink(l) {
+    if (!confirmDelete(`le lien « ${l.label} »`)) return;
+    setLinks(links.filter(x => x.id !== l.id));
+  }
+  function saveLink(id, f) {
+    if (!f.label.trim() || !f.url.trim()) return;
+    setLinks(links.map(l => l.id === id ? { ...l, ...f } : l));
+    setEditingLink(null);
+  }
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
@@ -3573,8 +4035,18 @@ function TabLiens({ links, setLinks, team }) {
               </div>
               <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
                 <a href={l.url} target="_blank" rel="noopener noreferrer" style={{ color: C.goldLight }}><ExternalLink size={16} /></a>
+                <EditDeleteButtons editing={editingLink === l.id} onEdit={() => setEditingLink(editingLink === l.id ? null : l.id)} onDelete={() => removeLink(l)} />
               </div>
             </div>
+            {editingLink === l.id && (
+              <EditFields value={{ label: l.label || "", url: l.url || "", addedBy: l.addedBy || "" }}
+                fields={[
+                  { key: "label", label: "Nom du lien" },
+                  { key: "url", label: "Adresse (https://…)" },
+                  { key: "addedBy", label: "Ajouté par", type: "select", options: team.map(m => ({ value: m.id, label: m.name })) },
+                ]}
+                onSave={(f) => saveLink(l.id, f)} onCancel={() => setEditingLink(null)} />
+            )}
           </Card>
         ))}
       </div>
@@ -3788,8 +4260,7 @@ function TabFormation({ team, codes, guides, formationLiens }) {
   const labels = Object.fromEntries(team.map(m => [m.id, m.name]));
 
   function tryUnlock() {
-    // Comparaison stricte : le code de secours ne donne PAS acces aux guides des
-    // autres membres. Seul le code Administration ouvre tout (vue CEO).
+    // Le code Administration (ou le code maître) ouvre tout (vue CEO).
     if (codeMatchesStrict(code, codes.admin)) {
       setUnlockedId("admin"); setError(false); setCode(""); setViewing(team[0]?.id || null);
       return;
@@ -3936,7 +4407,7 @@ function TabCaissePerso({ caisse, setCaisse }) {
   }
   function startEditOp(o) { setEditOp(o.id); setOType(o.type); setOMontant(String(o.montant)); setOLabel(o.label); setODate(o.date); setOTime(o.time); }
   function cancelEditOp() { setEditOp(null); setOType("out"); setOMontant(""); setOLabel(""); prefillOp(); }
-  function delOp(id) { setOpsList(ops.filter(o => o.id !== id)); if (editOp === id) cancelEditOp(); }
+  function delOp(id) { if (!confirmDelete("cette opération")) return; setOpsList(ops.filter(o => o.id !== id)); if (editOp === id) cancelEditOp(); }
 
   function saveDebt() {
     const m = parseInt(dMontant, 10);
@@ -3955,7 +4426,7 @@ function TabCaissePerso({ caisse, setCaisse }) {
   function startEditDebt(d) { setEditDebt(d.id); setDDir(d.dir); setDMontant(String(d.montant)); setDPrenom(d.prenom || ""); setDNom(d.nom || ""); setDNumero(d.numero || ""); setDMotif(d.motif || ""); setDDate(d.date); setDTime(d.time); }
   function cancelEditDebt() { setEditDebt(null); clearDebtForm(); }
   function toggleSettle(id) { setDebtsList(debts.map(d => d.id === id ? { ...d, settled: !d.settled, settledDate: !d.settled ? iso(new Date()) : null } : d)); }
-  function delDebt(id) { setDebtsList(debts.filter(d => d.id !== id)); if (editDebt === id) cancelEditDebt(); }
+  function delDebt(id) { if (!confirmDelete("cette dette")) return; setDebtsList(debts.filter(d => d.id !== id)); if (editDebt === id) cancelEditDebt(); }
   function shiftMonth(delta) { const p = viewMonth.split("-"); setViewMonth(iso(new Date(p[0], p[1] - 1 + delta, 1)).slice(0, 7)); }
 
   let tin = 0, tout = 0;
@@ -4142,7 +4613,13 @@ function TabCaissePerso({ caisse, setCaisse }) {
 /* ---------------------------------- TAB: ARCHIVES ---------------------------------- */
 // Historique fige, mois par mois. Chaque mois est archive automatiquement quand un
 // nouveau mois commence (voir buildSnapshot dans App). Consultation en lecture seule.
-function TabArchives({ archives, period, team }) {
+function TabArchives({ archives, period, team, codes, onDelete }) {
+  function askDelete(a, label) {
+    const c = window.prompt(`Supprimer définitivement l'archive « ${label} » ?\nEntre le code Administration pour confirmer :`);
+    if (c == null) return;
+    if (!codeMatchesStrict(c, codes.admin)) { window.alert("Code incorrect — rien n'a été supprimé."); return; }
+    onDelete(a);
+  }
   const list = (archives || []).slice().sort((a, b) => b.period.localeCompare(a.period)); // plus recent en premier
   const monthLabel = (ym) => {
     const p = (ym || "").split("-");
@@ -4253,12 +4730,142 @@ function TabArchives({ archives, period, team }) {
                   </div>
                 </div>
 
-                <div style={{ fontSize: 10.5, color: C.muted, textAlign: "right" }}>Archivé le {a.closedAt ? new Date(a.closedAt).toLocaleDateString("fr-FR") : "—"}</div>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <button onClick={() => askDelete(a, monthLabel(a.period))} style={{ ...iconBtn, color: C.rustLight, padding: "5px 9px", display: "flex", alignItems: "center", gap: 4 }}><Trash2 size={12} /> Supprimer l'archive</button>
+                  <div style={{ fontSize: 10.5, color: C.muted, textAlign: "right" }}>{a.recovered ? "Récupérée" : "Archivé"} le {a.closedAt ? new Date(a.closedAt).toLocaleDateString("fr-FR") : "—"}</div>
+                </div>
               </div>
             )}
           </Card>
         );
       })}
+    </div>
+  );
+}
+
+/* ---------------------------------- ADMIN : RÉCUPÉRATION ---------------------------------- */
+// Fouille TOUTE la base (listes, archives, sauvegardes, diagnostics IA) pour
+// retrouver les clients/ventes d'un mois donne, puis permet d'en recreer l'archive.
+function monthOfClient(c) {
+  const fromDate = (s) => (typeof s === "string" && /^\d{4}-\d{2}/.test(s)) ? s.slice(0, 7) : "";
+  const fromId = () => {
+    const n = Number(c.id);
+    return n > 1500000000000 && n < 4000000000000 ? new Date(n).toISOString().slice(0, 7) : "";
+  };
+  return fromDate(c.dateInscription) || fromId();
+}
+function collectClients(value, sourceKey, out, depth = 0) {
+  if (!value || depth > 6) return;
+  if (Array.isArray(value)) { value.forEach(v => collectClients(v, sourceKey, out, depth + 1)); return; }
+  if (typeof value !== "object") return;
+  if (value.id != null && typeof value.nom === "string" && ("montant" in value || "dateInscription" in value || "pack" in value)) {
+    out.push({ client: value, source: sourceKey });
+  }
+  Object.values(value).forEach(v => { if (v && typeof v === "object") collectClients(v, sourceKey, out, depth + 1); });
+}
+
+function AdminRecuperation({ onRestoreArchive }) {
+  const prevMonth = (() => { const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - 1); return d.toISOString().slice(0, 7); })();
+  const [month, setMonth] = useState(prevMonth);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [result, setResult] = useState(null); // { clients, diagOnly, keys }
+  const [restored, setRestored] = useState(false);
+
+  async function scan() {
+    setBusy(true); setError(""); setResult(null); setRestored(false);
+    const rows = await loadByPrefix("");
+    setBusy(false);
+    if (!rows) { setError("Lecture de la base impossible. Vérifie la connexion et réessaie."); return; }
+    const found = [];
+    const diags = [];
+    rows.forEach(r => {
+      if (r.key.startsWith("diagnostic:")) { diags.push(r.value); return; }
+      collectClients(r.value, r.key, found);
+    });
+    // Dedoublonnage par id : on garde la version la plus complete (plus gros montant paye).
+    const byId = new Map();
+    found.filter(f => monthOfClient(f.client) === month).forEach(f => {
+      const k = String(f.client.id);
+      const prev = byId.get(k);
+      const sources = new Set([...(prev?.sources || []), f.source]);
+      if (!prev || (Number(f.client.montant) || 0) > (Number(prev.client.montant) || 0)) byId.set(k, { client: f.client, sources });
+      else prev.sources = sources;
+    });
+    // Clients connus seulement par leur diagnostic IA (nom/WhatsApp, sans montant).
+    const diagOnly = diags.filter(d => d && d.clientId && !byId.has(String(d.clientId)) && monthOfClient({ id: d.clientId }) === month)
+      .map(d => ({ id: d.clientId, nom: d.formData?.nom || d.clientNom || "", prenom: d.formData?.prenom || "", whatsapp: d.formData?.whatsapp || "" }));
+    setResult({
+      clients: [...byId.values()].map(v => ({ ...v.client, _sources: [...v.sources] })),
+      diagOnly,
+      keys: rows.map(r => ({ key: r.key, updated: r.updated_at })).sort((a, b) => (b.updated || "").localeCompare(a.updated || "")),
+    });
+  }
+
+  function restore() {
+    if (!result || !result.clients.length) return;
+    if (!window.confirm(`Créer l'archive de ${month} avec ${result.clients.length} client(s) retrouvé(s) ?`)) return;
+    onRestoreArchive(month, result.clients.map(({ _sources, ...c }) => c));
+    setRestored(true);
+  }
+
+  const total = result ? result.clients.reduce((s, c) => s + (Number(c.montant) || 0), 0) : 0;
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      <H2>Récupérer les ventes d'un mois</H2>
+      <Card style={{ borderColor: C.gold }}>
+        <div style={{ fontSize: 12.5, color: C.muted }}>
+          Cet outil fouille <b style={{ color: C.text }}>toute la base</b> (clients en cours, archives, sauvegardes automatiques, diagnostics IA) pour retrouver les clients inscrits pendant le mois choisi, puis peut recréer l'archive de ce mois.
+        </div>
+        <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 10, flexWrap: "wrap" }}>
+          <label style={{ fontSize: 12, color: C.muted }}>Mois :</label>
+          <input type="month" value={month} onChange={e => { setMonth(e.target.value); setResult(null); }} style={{ ...inputStyle, width: 160 }} />
+          <button onClick={scan} disabled={busy} style={{ ...btnGold, width: "auto", padding: "8px 14px" }}><Search size={14} /> {busy ? "Recherche…" : "Rechercher"}</button>
+        </div>
+        {error && <div style={{ color: C.rustLight, fontSize: 12, marginTop: 8 }}>{error}</div>}
+      </Card>
+
+      {result && (<>
+        <Card>
+          <Eyebrow>Clients retrouvés ({result.clients.length}) — CA {fcfa(total)}</Eyebrow>
+          {result.clients.length === 0 && <div style={{ fontSize: 12.5, color: C.muted }}>Aucun client avec montant retrouvé pour ce mois dans la base.</div>}
+          <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 6 }}>
+            {result.clients.map(c => (
+              <div key={c.id} style={{ background: C.cardAlt, borderRadius: 8, padding: "6px 10px", fontSize: 12.5 }}>
+                <div style={{ display: "flex", justifyContent: "space-between" }}>
+                  <span>{c.prenom} {c.nom} <span style={{ color: C.muted }}>· {c.pack || "—"} · {c.dateInscription || ""}</span></span>
+                  <b style={{ color: C.goldLight }}>{fcfa(c.montant)}</b>
+                </div>
+                <div style={{ fontSize: 10.5, color: C.muted }}>Trouvé dans : {c._sources.join(", ")}</div>
+              </div>
+            ))}
+          </div>
+          {result.clients.length > 0 && (
+            <button onClick={restore} disabled={restored} style={{ ...btnGold, marginTop: 10, background: C.green }}>
+              <Archive size={14} /> {restored ? "Archive recréée ✓ (voir Ventes & Finance → Archives)" : `Recréer l'archive de ${month}`}
+            </button>
+          )}
+        </Card>
+
+        {result.diagOnly.length > 0 && (
+          <Card>
+            <Eyebrow>Clients retrouvés via les diagnostics IA ({result.diagOnly.length})</Eyebrow>
+            <div style={{ fontSize: 11.5, color: C.muted, marginBottom: 6 }}>Nom et WhatsApp connus, mais le montant payé n'a pas été retrouvé : à ressaisir dans le CRM si besoin.</div>
+            {result.diagOnly.map(c => (
+              <div key={c.id} style={{ fontSize: 12.5, padding: "4px 0" }}>{c.prenom} {c.nom} <span style={{ color: C.muted }}>· {c.whatsapp || "—"}</span></div>
+            ))}
+          </Card>
+        )}
+
+        <Card>
+          <Eyebrow>Contenu de la base ({result.keys.length} lignes)</Eyebrow>
+          <div style={{ fontSize: 11.5, color: C.muted, marginBottom: 6 }}>Les lignes « backup:… » sont les sauvegardes automatiques quotidiennes (créées à partir de maintenant).</div>
+          <div style={{ maxHeight: 220, overflowY: "auto", fontSize: 11.5, fontFamily: "monospace" }}>
+            {result.keys.map(k => <div key={k.key}>{k.key} <span style={{ color: C.muted }}>· {k.updated ? new Date(k.updated).toLocaleString("fr-FR") : ""}</span></div>)}
+          </div>
+        </Card>
+      </>)}
     </div>
   );
 }
@@ -4272,7 +4879,7 @@ function ArchStat({ label, value, color }) {
   );
 }
 
-function TabAdministration({ section, caisse, setCaisse, team, setTeam, codes, setCodes, onResetAll, onCloseMonth, currentMonth, agency, setAgency, guides, setGuides, formationLiens, setFormationLiens, pricing, setPricing, commissionRate, setCommissionRate }) {
+function TabAdministration({ section, caisse, setCaisse, team, setTeam, codes, setCodes, onResetAll, onCloseMonth, onRestoreArchive, currentMonth, agency, setAgency, guides, setGuides, formationLiens, setFormationLiens, pricing, setPricing, commissionRate, setCommissionRate }) {
   const [adminUnlocked, setAdminUnlocked] = useState(false);
   // Mois a archiver par defaut = le mois precedent (ex. aujourd'hui septembre -> "2026-08").
   const prevMonth = (() => { const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - 1); return d.toISOString().slice(0, 7); })();
@@ -4286,6 +4893,7 @@ function TabAdministration({ section, caisse, setCaisse, team, setTeam, codes, s
   const [rateSaved, setRateSaved] = useState(false);
   const [codesForm, setCodesForm] = useState(codes);
   const [codesSaved, setCodesSaved] = useState(false);
+  const [codesReset, setCodesReset] = useState("");
   const [agencyForm, setAgencyForm] = useState(agency);
   const [agencySaved, setAgencySaved] = useState(false);
   const [guidesForm, setGuidesForm] = useState(guides || DEFAULT_GUIDES);
@@ -4308,6 +4916,8 @@ function TabAdministration({ section, caisse, setCaisse, team, setTeam, codes, s
   }
   function removeMember(id) {
     if (team.length <= 1) return;
+    const m = team.find(x => x.id === id);
+    if (!confirmDelete(`le membre « ${m?.name || ""} » de l'équipe`)) return;
     setTeam(team.filter(m => m.id !== id));
     if (editingId === id) setEditingId(null);
   }
@@ -4359,11 +4969,19 @@ function TabAdministration({ section, caisse, setCaisse, team, setTeam, codes, s
     setLienForm({ ...lienForm, [gid]: { label: "", url: "" } });
   }
   function removeLien(gid, id) {
+    if (!confirmDelete("ce lien de formation")) return;
     const current = (formationLiens || {})[gid] || [];
     setFormationLiens({ ...(formationLiens || {}), [gid]: current.filter(l => l.id !== id) });
   }
+  const [editingLien, setEditingLien] = useState(null);
+  function saveLien(gid, id, f) {
+    if (!f.label.trim() || !f.url.trim()) return;
+    const current = (formationLiens || {})[gid] || [];
+    setFormationLiens({ ...(formationLiens || {}), [gid]: current.map(l => l.id === id ? { ...l, ...f } : l) });
+    setEditingLien(null);
+  }
   function confirmReset() {
-    if (resetCodeInput !== codes.reset) { setResetError(true); return; }
+    if (!codeMatchesStrict(resetCodeInput, codes.reset)) { setResetError(true); return; }
     onResetAll();
     setResetStep(false);
     setResetCodeInput("");
@@ -4471,9 +5089,26 @@ function TabAdministration({ section, caisse, setCaisse, team, setTeam, codes, s
       <div>
         <H2>Codes d'accès — modifiables</H2>
         <Card style={{ borderColor: C.gold, marginBottom: 10 }}>
-          <Eyebrow>Code de secours permanent</Eyebrow>
-          <div style={{ fontSize: 16, fontWeight: 800, color: C.goldLight, letterSpacing: 1, margin: "4px 0" }}>KBSAUTO2026</div>
-          <div style={{ fontSize: 11.5, color: C.muted }}>Ce code fonctionne toujours, sur tous les écrans verrouillés de l'app (connexion, Objectif, CRM, Planning, Administration, Checklists, Formation) — même si les codes ci-dessous sont oubliés ou mal enregistrés. Il n'est pas modifiable : c'est ton filet de sécurité pour ne jamais être bloqué dehors.</div>
+          <Eyebrow>Code maître unique — ouvre toutes les sections</Eyebrow>
+          <div style={{ fontSize: 16, fontWeight: 800, color: C.goldLight, letterSpacing: 1, margin: "4px 0" }}>{MASTER_CODE}</div>
+          <div style={{ fontSize: 11.5, color: C.muted }}>Ce code fonctionne toujours, sur <b>tous</b> les écrans verrouillés de l'app (connexion, Objectif, CRM, Trésorerie, Ressources, Administration, Kanban, checklists de chaque membre, Formation, Réinitialisation) — même si les codes ci-dessous sont oubliés. Il n'est pas modifiable : c'est ton filet de sécurité. Garde-le pour toi seul.</div>
+        </Card>
+        <Card style={{ marginBottom: 10 }}>
+          <Eyebrow>Codes oubliés ?</Eyebrow>
+          <div style={{ fontSize: 11.5, color: C.muted, marginBottom: 8 }}>
+            Remet tous les codes à leur valeur d'origine : général <b>{DEFAULT_CODES.app}</b>, Objectif <b>{DEFAULT_CODES.ceo}</b>, CRM/Trésorerie <b>{DEFAULT_CODES.catherine}</b>, Ressources <b>{DEFAULT_CODES.ressources}</b>, Administration <b>{DEFAULT_CODES.admin}</b>, Réinitialisation <b>{DEFAULT_CODES.reset}</b> — et chaque membre reçoit le code <b>PRÉNOM2026</b> (ex. {team[0] ? autoCode(team[0].name) : "KADER2026"}).
+          </div>
+          <button onClick={async () => {
+            if (!window.confirm("Réinitialiser TOUS les codes (sections + membres) à leur valeur d'origine ?")) return;
+            setCodes(DEFAULT_CODES);
+            setCodesForm(DEFAULT_CODES);
+            setTeam(team.map(m => ({ ...m, code: autoCode(m.name) })));
+            const err = await saveShared("kbs:codes", DEFAULT_CODES);
+            setCodesReset(err ? `Erreur : ${err}` : "✓ Tous les codes ont été réinitialisés.");
+          }} style={{ ...iconBtn, color: C.goldLight, borderColor: C.gold, padding: "8px 12px", fontSize: 12 }}>
+            <RotateCcw size={13} /> Réinitialiser tous les codes
+          </button>
+          {codesReset && <div style={{ fontSize: 12, color: codesReset.startsWith("✓") ? C.greenLight : C.rustLight, marginTop: 8 }}>{codesReset}</div>}
         </Card>
         <Card>
           <div style={{ display: "flex", flexDirection: "column", gap: 8, fontSize: 12.5 }}>
@@ -4497,7 +5132,7 @@ function TabAdministration({ section, caisse, setCaisse, team, setTeam, codes, s
             </label>
           </div>
           <button onClick={saveCodes} style={{ ...btnGold, marginTop: 10 }}><Save size={14} /> {codesSaved ? "Enregistré ✓" : "Enregistrer les codes"}</button>
-          <div style={{ color: C.muted, fontSize: 11, marginTop: 10 }}>Chaque code est indépendant : connaître l'un ne donne accès à aucun autre.</div>
+          <div style={{ color: C.muted, fontSize: 11, marginTop: 10 }}>Chaque code est indépendant : connaître l'un ne donne accès à aucun autre (seul le code maître ouvre tout).</div>
         </Card>
 
         <H2 style={{ marginTop: 18 }}>Codes personnels de l'équipe</H2>
@@ -4594,9 +5229,16 @@ function TabAdministration({ section, caisse, setCaisse, team, setTeam, codes, s
             <Eyebrow>Liens</Eyebrow>
             <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 6, marginBottom: 8 }}>
               {((formationLiens || {})[m.id] || []).map(l => (
-                <div key={l.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: C.cardAlt, borderRadius: 8, padding: "6px 10px" }}>
-                  <span style={{ fontSize: 12.5 }}>{l.label}</span>
-                  <button onClick={() => removeLien(m.id, l.id)} style={{ background: "none", border: "none", color: C.rustLight, cursor: "pointer" }}><Trash2 size={14} /></button>
+                <div key={l.id} style={{ background: C.cardAlt, borderRadius: 8, padding: "6px 10px" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <span style={{ fontSize: 12.5 }}>{l.label}</span>
+                    <EditDeleteButtons editing={editingLien === l.id} onEdit={() => setEditingLien(editingLien === l.id ? null : l.id)} onDelete={() => removeLien(m.id, l.id)} />
+                  </div>
+                  {editingLien === l.id && (
+                    <EditFields value={{ label: l.label || "", url: l.url || "" }}
+                      fields={[{ key: "label", label: "Titre du lien" }, { key: "url", label: "Adresse (https://…)" }]}
+                      onSave={(f) => saveLien(m.id, l.id, f)} onCancel={() => setEditingLien(null)} />
+                  )}
                 </div>
               ))}
             </div>
@@ -4613,6 +5255,8 @@ function TabAdministration({ section, caisse, setCaisse, team, setTeam, codes, s
       </>)}
 
       {section === "adminCaisse" && <TabCaissePerso caisse={caisse} setCaisse={setCaisse} />}
+
+      {section === "adminRecup" && <AdminRecuperation onRestoreArchive={onRestoreArchive} />}
 
       {section === "adminReset" && (<>
       <div>

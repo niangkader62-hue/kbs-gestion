@@ -6,6 +6,39 @@ Les entrées les plus récentes sont en haut.
 
 ---
 
+## 2026-10-13 — Ventes de septembre disparues, avances, codes, modifier/supprimer
+
+Branche `ccr-5b04f8c0-vt8y8v` (pas encore fusionnée dans `main`).
+
+1. **Cause probable de la perte de septembre (corrigée)** : au démarrage, si une
+   lecture Supabase échouait (réseau faible), l'app prenait une liste vide par
+   défaut… puis la **réécrivait aussitôt dans la base**, ce qui effaçait les
+   vraies données (clients ET archives). Désormais :
+   - si une seule lecture échoue → écran « Réessayer », **aucune écriture** ;
+   - chaque archive est aussi stockée dans sa propre ligne `archive:<id>`
+     (refusionnée au chargement, ne peut plus être écrasée) ;
+   - **sauvegarde automatique quotidienne** `backup:AAAA-MM-JJ` + copie
+     `backup:avant-bascule:…` juste avant chaque changement de mois ;
+   - une appli restée ouverte pendant le changement de mois se recharge
+     (évite qu'une copie périmée écrase les données des autres appareils).
+2. **Outil de récupération** (Administration → Récupération) : fouille toute la
+   base (listes, archives, sauvegardes, diagnostics IA) pour retrouver les
+   clients d'un mois et recréer son archive.
+3. **Paiement en plusieurs fois** (CRM) : « Prix total » + « Payé maintenant /
+   avance », puis bouton « Ajouter un paiement » dans la fiche. Statut Avance /
+   Soldé, reste à payer, total « Reste à encaisser ». Reçus WhatsApp et PDF
+   affichent les versements et le reste. Au changement de mois, un client avec
+   un solde dû est reporté (avec seulement le reste), ainsi que les prospects
+   non payés et les dettes non payées.
+4. **Code maître unique `KBSAUTO2026`** : ouvre désormais **toutes** les
+   sections (y compris checklists, Formation, Réinitialisation). Bouton
+   « Réinitialiser tous les codes » (Administration → Codes d'accès).
+5. **Modifier / Supprimer** (avec confirmation) : CRM, Devis, Kanban, Dépenses,
+   Dettes, Prospection réseaux, Liens partagés, Liens de formation, Tarifs,
+   Archives (code Administration exigé), Équipe, Caisse perso.
+
+---
+
 ## 2026-09-22 — Session commissions, archives, notifications, logo, ébauche SaaS
 
 ### ✅ Déployé en production (`app.kbsdigitalagency.com`, branche `main`)
