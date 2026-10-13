@@ -168,6 +168,35 @@ function NotifDot({ count }) {
 
 const LOGO_B64 = BRAND_LOGO.split(",")[1]; // base64 seul (balises <img>)
 
+// Icône de l'application KBS Gestion (monogramme KG). Le logo complet
+// KBS Digital Agency (BRAND_LOGO) reste sur les reçus, devis et factures.
+function AppIcon({ size = 40, style }) {
+  return (
+    <svg viewBox="0 0 100 100" width={size} height={size} role="img" aria-label="KBS Gestion" style={{ flexShrink: 0, display: "block", ...style }}>
+      <defs>
+        <linearGradient id="kbsAppIconBg" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stopColor="#0B2E6B" /><stop offset="1" stopColor="#011B45" />
+        </linearGradient>
+      </defs>
+      <rect width="100" height="100" rx="23" fill="url(#kbsAppIconBg)" />
+      <rect x="1.5" y="1.5" width="97" height="97" rx="21.5" fill="none" stroke="rgba(255,255,255,.16)" strokeWidth="3" />
+      <text x="49" y="73" textAnchor="middle" fontFamily="Archivo, 'Arial Black', sans-serif" fontWeight="900" fontSize="54" letterSpacing="-4">
+        <tspan fill="#FFFFFF">K</tspan><tspan fill="#F39200">G</tspan>
+      </text>
+      <line x1="66" y1="30" x2="80" y2="16" stroke="#FDB402" strokeWidth="5.5" strokeLinecap="round" />
+      <polyline points="70,15 81,15 81,26" fill="none" stroke="#FDB402" strokeWidth="5.5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function AppWordmark({ size = 18 }) {
+  return (
+    <span style={{ fontFamily: "Archivo, sans-serif", fontWeight: 900, fontSize: size, letterSpacing: "-0.02em", whiteSpace: "nowrap" }}>
+      KBS <span style={{ color: "#F39200", fontWeight: 700 }}>Gestion</span>
+    </span>
+  );
+}
+
 function autoCode(name) {
   const base = (name || "").toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^A-Z]/g, "").slice(0, 6) || "MEMBRE";
   return `${base}2026`;
@@ -1788,7 +1817,7 @@ export default function App() {
 
       {!loaded ? (
         <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", gap: 14, alignItems: "center", justifyContent: "center", color: C.muted, fontSize: 13, padding: 24, textAlign: "center" }}>
-          <img src={BRAND_LOGO} alt="KBS Digital Agency" style={{ width: 64, height: 64, borderRadius: "50%" }} />
+          <AppIcon size={64} />
           {loadError ? (<>
             <AlertTriangle size={26} color={C.rustLight} />
             <div style={{ color: C.text, maxWidth: 360 }}>{loadError}</div>
@@ -1802,9 +1831,9 @@ export default function App() {
         {/* MENU LATERAL (ordinateur) */}
         <aside className="kbs-side" style={{ width: 250, flexShrink: 0, background: C.surf, borderRight: `1px solid ${C.border}`, padding: "22px 14px", flexDirection: "column", gap: 3, position: "sticky", top: 0, height: "100vh", boxSizing: "border-box", overflowY: "auto" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "0 6px 14px" }}>
-            <img src={BRAND_LOGO} alt="KBS Digital Agency" style={{ width: 42, height: 42, borderRadius: "50%" }} />
+            <AppIcon size={42} />
             <div>
-              <div style={{ fontFamily: "Archivo, sans-serif", fontWeight: 900, fontSize: 18 }}>KBS Gestion</div>
+              <div><AppWordmark size={18} /></div>
               <div style={{ color: C.muted, fontSize: 11.5 }}>KBS Digital Agency</div>
             </div>
           </div>
@@ -1834,7 +1863,7 @@ export default function App() {
                 {tab !== "accueil" ? (
                   <button onClick={() => go(tab === "menu" ? "accueil" : (BOTTOM.some(b => b.id === tab) ? "accueil" : "menu"))} aria-label="Retour" className="kbs-mobile-only" style={{ width: 40, height: 40, borderRadius: 13, background: C.card, border: "none", color: C.text, display: "grid", placeItems: "center", cursor: "pointer", flexShrink: 0 }}><ChevronLeft size={20} /></button>
                 ) : (
-                  <img src={BRAND_LOGO} alt="KBS Digital Agency" className="kbs-mobile-only" style={{ width: 40, height: 40, borderRadius: "50%" }} />
+                  <span className="kbs-mobile-only"><AppIcon size={40} /></span>
                 )}
                 <div style={{ minWidth: 0 }}>
                   {tab === "accueil" && <div style={{ color: C.muted, fontSize: 12 }}>Bonjour{me ? ` ${me.name}` : ""}</div>}
@@ -1955,9 +1984,9 @@ function LoginScreen({ onUnlock, codes, team }) {
       <div aria-hidden="true" style={{ position: "absolute", width: 460, height: 460, borderRadius: "50%", border: "1px solid rgba(243,146,0,.22)", right: -240, top: -210 }} />
       <div style={{ width: "100%", maxWidth: 400, position: "relative" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-          <img src={BRAND_LOGO} alt="KBS Digital Agency" style={{ width: 64, height: 64, borderRadius: "50%", boxShadow: "0 10px 30px rgba(243,146,0,.25)" }} />
+          <AppIcon size={64} style={{ borderRadius: 15, boxShadow: "0 10px 30px rgba(243,146,0,.25)" }} />
           <div>
-            <div style={{ fontFamily: "Archivo, sans-serif", fontWeight: 900, fontSize: 26, letterSpacing: "-0.02em" }}>KBS Gestion</div>
+            <div><AppWordmark size={26} /></div>
             <div style={{ color: C.muted, fontSize: 12.5, marginTop: 3 }}>Ventes, stock, clients et équipe de l'agence</div>
           </div>
         </div>

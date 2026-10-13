@@ -168,3 +168,11 @@ Branche `ccr-5b04f8c0-vt8y8v` (pas encore fusionnée dans `main`).
 - Base de données partagée : Supabase (`kbs_storage`, clé/valeur), même
   projet pour la prod et le test SaaS (isolation actuelle = uniquement les
   clés préfixées `org:*`, pas de RLS).
+
+## 2026-10-13 — Icône de l'application (monogramme KG)
+
+- Choix du gérant : proposition C, monogramme « KG » (K blanc, G orange, flèche de croissance) sur carré bleu nuit.
+- `AppIcon` et `AppWordmark` dans `src/App.jsx` : écran de chargement, connexion, menu latéral et en-tête mobile.
+- Icônes PNG régénérées dans `public/` (icon-192, icon-512, maskable, apple-touch-icon, favicon-32).
+- Le logo complet KBS Digital Agency (`BRAND_LOGO`) reste sur les reçus, devis, factures et le ticket de caisse.
+- Pour voir la nouvelle icône sur un téléphone : supprimer le raccourci et réinstaller l'app depuis le navigateur.
