@@ -948,8 +948,19 @@ async function latestBundle() {
   const m = (await r.text()).match(/\/assets\/index-[^"']+\.js/);
   return m ? m[0] : null;
 }
+// Notes de version : public/nouveautes.json (a mettre a jour a chaque publication).
+// Lues sur le serveur, donc la bande « nouvelle version » affiche deja ce qui change.
+async function loadNews() {
+  try {
+    const r = await fetch(`/nouveautes.json?maj=${Date.now()}`, { cache: "no-store" });
+    if (!r.ok) return null;
+    const n = await r.json();
+    return n && Array.isArray(n.points) && n.points.length ? n : null;
+  } catch { return null; }
+}
 function useAppUpdate() {
   const [ready, setReady] = useState(false);
+  const [news, setNews] = useState(null);
   async function check() {
     const mine = loadedBundle();
     if (!mine) return "dev"; // mode developpement : rien a comparer
@@ -957,6 +968,7 @@ function useAppUpdate() {
       const latest = await latestBundle();
       const isNew = !!latest && latest !== mine;
       setReady(isNew);
+      if (isNew) setNews(await loadNews());
       return isNew ? "new" : "same";
     } catch { return "error"; }
   }
@@ -978,10 +990,10 @@ function useAppUpdate() {
     return () => { document.removeEventListener("visibilitychange", onVis); clearInterval(t); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  return { ready, check, apply };
+  return { ready, news, check, apply };
 }
 
-function UpdateBanner({ onApply }) {
+function UpdateBanner({ onApply, news }) {
   const [busy, setBusy] = useState(false);
   return (
     <div role="status" className="kbs-safe-top" style={{ position: "sticky", top: 0, zIndex: 60, background: "linear-gradient(160deg,#FDB402,#F39200 60%,#FD5C01)", color: "#011B45", display: "flex", alignItems: "center", gap: 10, padding: "10px 16px", fontWeight: 700, fontSize: 13.5, flexWrap: "wrap" }}>
@@ -990,6 +1002,37 @@ function UpdateBanner({ onApply }) {
       <button onClick={() => { setBusy(true); onApply(); }} disabled={busy} style={{ background: "#011B45", color: "#fff", border: "none", borderRadius: 11, padding: "9px 14px", fontWeight: 800, fontSize: 13, cursor: "pointer" }}>
         {busy ? "Mise à jour…" : "Mettre à jour maintenant"}
       </button>
+      {news && (
+        <ul style={{ flexBasis: "100%", margin: "2px 0 0", paddingLeft: 26, fontWeight: 600, fontSize: 12.5, lineHeight: 1.45 }}>
+          {news.points.slice(0, 3).map((t, i) => <li key={i}>{t}</li>)}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+// Apres une mise a jour : on affiche une fois les nouveautes de la version installee.
+function NewsPopup() {
+  const [news, setNews] = useState(null);
+  useEffect(() => {
+    loadNews().then(n => {
+      if (!n) return;
+      let seen = null;
+      try { seen = localStorage.getItem("kbs:newsSeen"); } catch (e) {}
+      if (seen !== n.version) setNews(n);
+    });
+  }, []);
+  if (!news) return null;
+  function close() { try { localStorage.setItem("kbs:newsSeen", news.version); } catch (e) {} setNews(null); }
+  return (
+    <div role="dialog" aria-modal="true" onClick={close} style={{ position: "fixed", inset: 0, zIndex: 80, background: "rgba(0,8,25,.6)", display: "grid", placeItems: "center", padding: 16 }}>
+      <div onClick={e => e.stopPropagation()} style={{ background: C.card, color: C.text, borderRadius: 22, padding: "22px 20px", maxWidth: 420, width: "100%", boxSizing: "border-box", boxShadow: "0 30px 60px rgba(0,0,0,.4)" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, fontFamily: "Archivo, sans-serif", fontWeight: 800, fontSize: 19 }}><Sparkles size={20} color={C.goldLight} /> {news.titre || "Nouveautés"}</div>
+        <ul style={{ margin: "14px 0 0", paddingLeft: 20, display: "flex", flexDirection: "column", gap: 9, fontSize: 14, lineHeight: 1.5 }}>
+          {news.points.map((t, i) => <li key={i}>{t}</li>)}
+        </ul>
+        <button onClick={close} className="kbs-tap" style={{ ...btnGold, width: "100%", height: 48, marginTop: 18 }}>J'ai compris</button>
+      </div>
     </div>
   );
 }
@@ -2113,7 +2156,8 @@ function App() {
   return (
     <div style={{ minHeight: "100vh", background: C.bg, color: C.text, fontFamily: "Figtree, sans-serif", fontSize: 14 }}>
       <style>{FONT_IMPORT}</style>
-      {upd.ready && <UpdateBanner onApply={upd.apply} />}
+      {upd.ready && <UpdateBanner onApply={upd.apply} news={upd.news} />}
+      {!upd.ready && <NewsPopup />}
 
       {!loaded ? (
         <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", gap: 14, alignItems: "center", justifyContent: "center", color: C.muted, fontSize: 13, padding: 24, textAlign: "center" }}>
