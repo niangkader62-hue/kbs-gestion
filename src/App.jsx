@@ -927,6 +927,12 @@ async function saveShared(key, value) {
   }
 }
 
+// Caisses perso des membres (hors CEO) pour les sauvegardes : { "kbs:caisse:<id>": {...} }.
+async function loadCaissesPerso() {
+  const rows = await loadByPrefix("kbs:caisse:");
+  return Object.fromEntries((rows || []).map(r => [r.key, r.value]));
+}
+
 /* ------------------------------ MISE A JOUR DE L'APPLICATION ------------------------------ */
 // Chaque publication produit un nouveau fichier /assets/index-XXXX.js. On relit index.html
 // sur le serveur (sans cache) : si le fichier annonce n'est plus celui charge, une nouvelle
@@ -1704,7 +1710,7 @@ function App() {
       const today = new Date().toISOString().slice(0, 10);
       const backupKey = `backup:${today}`;
       const existing = await loadShared(backupKey, null);
-      if (!existing) await saveShared(backupKey, { savedAt: new Date().toISOString(), kind: "jour", commissionRate: rate, ...d });
+      if (!existing) await saveShared(backupKey, { savedAt: new Date().toISOString(), kind: "jour", commissionRate: rate, ...d, caissesPerso: await loadCaissesPerso() });
       lastDailyBackupRef.current = today;
     })();
   }, [loadAttempt]);
@@ -1946,7 +1952,7 @@ function App() {
     const day = now.toISOString().slice(0, 10);
     const key = kind === "jour" ? `backup:${day}` : `backup:${kind}:${day}:${now.getTime()}`;
     const by = (team.find(m => m.id === currentUser) || {}).name || "";
-    return await saveShared(key, { savedAt: now.toISOString(), kind, by, ...snapshotRef.current });
+    return await saveShared(key, { savedAt: now.toISOString(), kind, by, ...snapshotRef.current, caissesPerso: await loadCaissesPerso() });
   }
   // Restaure une sauvegarde : copie de securite des donnees actuelles d'abord, puis
   // reecriture de chaque module et rechargement. Le mois en cours n'est pas touche.
@@ -1956,6 +1962,11 @@ function App() {
     for (const k of BACKUP_KEYS) {
       if (data[k] === undefined) continue;
       const err = await saveShared(`kbs:${k}`, data[k]);
+      if (err) return err;
+    }
+    for (const [k, v] of Object.entries(data.caissesPerso || {})) {
+      if (!k.startsWith("kbs:caisse:")) continue;
+      const err = await saveShared(k, v);
       if (err) return err;
     }
     window.location.reload();
@@ -2114,7 +2125,7 @@ function App() {
           </>) : "Chargement de KBS Gestion…"}
         </div>
       ) : !unlocked ? (
-        <LoginScreen codes={codes} team={team} onUnlock={(uid) => { setCurrentUser(uid); setUnlocked(true); setTab("accueil"); }} />
+        <LoginScreen codes={codes} team={team} agency={agency} onUnlock={(uid) => { setCurrentUser(uid); setUnlocked(true); setTab("accueil"); }} />
       ) : (
       <div style={{ display: "flex", minHeight: "100vh" }}>
         {/* MENU LATERAL (ordinateur) */}
@@ -2228,7 +2239,7 @@ function App() {
                 {tab === "formation" && <TabFormation team={team} codes={codes} guides={guides} formationLiens={formationLiens} />}
               </>
             )}
-            {category === "admin" && <TabAdministration section={tab} caisse={caisse} setCaisse={setCaisse} team={team} setTeam={setTeam} codes={codes} setCodes={setCodes} onResetAll={resetAllData} onCloseMonth={closeMonthManually} onRestoreArchive={restoreArchive} onBackupNow={backupNow} onRestoreBackup={restoreBackup} currentMonth={currentMonth()} agency={agency} setAgency={setAgency} guides={guides} setGuides={setGuides} formationLiens={formationLiens} setFormationLiens={setFormationLiens} pricing={pricing} setPricing={setPricing} commissionRate={commissionRate} setCommissionRate={setCommissionRate} />}
+            {category === "admin" && <TabAdministration section={tab} caisse={caisse} setCaisse={setCaisse} currentUser={currentUser} team={team} setTeam={setTeam} codes={codes} setCodes={setCodes} onResetAll={resetAllData} onCloseMonth={closeMonthManually} onRestoreArchive={restoreArchive} onBackupNow={backupNow} onRestoreBackup={restoreBackup} currentMonth={currentMonth()} agency={agency} setAgency={setAgency} guides={guides} setGuides={setGuides} formationLiens={formationLiens} setFormationLiens={setFormationLiens} pricing={pricing} setPricing={setPricing} commissionRate={commissionRate} setCommissionRate={setCommissionRate} />}
           </div>
         </div>
 
@@ -2256,11 +2267,48 @@ function App() {
 }
 
 /* ---------------------------------- LOGIN SCREEN ---------------------------------- */
-function LoginScreen({ onUnlock, codes, team }) {
+function LoginScreen({ onUnlock, codes, team, agency }) {
   const [who, setWho] = useState(team[0]?.id || "");
   const [pwd, setPwd] = useState("");
   const [error, setError] = useState(false);
+  const [mode, setMode] = useState("connexion"); // "connexion" | "inscription"
+  const [mail, setMail] = useState("");
+  const [authMsg, setAuthMsg] = useState(null);   // { ok, text }
+  const [authBusy, setAuthBusy] = useState(false);
+  const [pending, setPending] = useState(null);   // e-mail confirme mais pas encore autorise
   const member = team.find(m => m.id === who);
+
+  // Au retour de Google ou du lien recu par e-mail, Supabase ouvre une session :
+  // on rattache l'adresse a un membre de l'equipe (ou a l'agence = CEO). Sinon : en attente de validation.
+  useEffect(() => {
+    let alive = true;
+    const check = (session) => {
+      const em = (session?.user?.email || "").trim().toLowerCase();
+      if (!alive || !em) return;
+      const m = team.find(t => (t.email || "").trim().toLowerCase() === em);
+      if (m) { onUnlock(m.id); return; }
+      if ((agency?.email || "").trim().toLowerCase() === em) { onUnlock(team[0]?.id || null); return; }
+      setPending(em); setMode("inscription");
+    };
+    supabase.auth.getSession().then(({ data }) => check(data?.session)).catch(() => {});
+    const { data: sub } = supabase.auth.onAuthStateChange((_e, session) => check(session));
+    return () => { alive = false; sub?.subscription?.unsubscribe(); };
+  }, []);
+
+  async function signUpGoogle() {
+    setAuthBusy(true); setAuthMsg(null);
+    const { error: e } = await supabase.auth.signInWithOAuth({ provider: "google", options: { redirectTo: window.location.origin, queryParams: { prompt: "select_account" } } });
+    if (e) { setAuthBusy(false); setAuthMsg({ ok: false, text: "Connexion Google impossible : " + e.message }); }
+  }
+  async function signUpLink() {
+    const em = mail.trim();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(em)) { setAuthMsg({ ok: false, text: "Entre une adresse e-mail valide." }); return; }
+    setAuthBusy(true); setAuthMsg(null);
+    const { error: e } = await supabase.auth.signInWithOtp({ email: em, options: { emailRedirectTo: window.location.origin, shouldCreateUser: true } });
+    setAuthBusy(false);
+    setAuthMsg(e ? { ok: false, text: "Envoi impossible : " + e.message } : { ok: true, text: `Lien envoyé à ${em}. Ouvre ta boîte Gmail (pense au dossier Spam) et clique sur le lien pour créer ton compte.` });
+  }
+  async function leavePending() { await supabase.auth.signOut().catch(() => {}); setPending(null); setMode("connexion"); setAuthMsg(null); }
 
   // Entree avec : le code personnel du membre choisi, le code general de l'outil, ou le code maitre.
   function tryUnlock() {
@@ -2297,6 +2345,37 @@ function LoginScreen({ onUnlock, codes, team }) {
           </div>
         </div>
 
+        <div style={{ display: "flex", gap: 6, background: C.card, borderRadius: 14, padding: 4, marginBottom: 22 }}>
+          {[["connexion", "Connexion"], ["inscription", "Inscription"]].map(([k, l]) => (
+            <button key={k} onClick={() => { setMode(k); setAuthMsg(null); }} style={{ flex: 1, height: 40, border: "none", borderRadius: 11, cursor: "pointer", fontWeight: 700, fontSize: 14, background: mode === k ? C.gold : "transparent", color: mode === k ? "#011B45" : C.muted }}>{l}</button>
+          ))}
+        </div>
+
+        {mode === "inscription" ? (<>
+          {pending ? (<>
+            <div style={{ fontFamily: "Archivo, sans-serif", fontWeight: 800, fontSize: 22 }}>Compte créé ✓</div>
+            <div style={{ color: C.muted, fontSize: 13.5, lineHeight: 1.55, marginTop: 10 }}>
+              Ton adresse <b style={{ color: C.text }}>{pending}</b> est confirmée. Pour entrer dans l'outil, le CEO doit d'abord associer cette adresse à ton profil (Administration → Équipe). Préviens-le, puis reviens ici.
+            </div>
+            <button onClick={leavePending} className="kbs-tap" style={{ ...btnGold, width: "100%", height: 50, marginTop: 20 }}>Retour à la connexion</button>
+          </>) : (<>
+            <div style={{ fontFamily: "Archivo, sans-serif", fontWeight: 800, fontSize: 22 }}>Créer mon compte</div>
+            <button onClick={signUpGoogle} disabled={authBusy} className="kbs-tap" style={{ width: "100%", height: 54, marginTop: 18, borderRadius: 16, border: "none", background: "#fff", color: "#1f1f1f", fontWeight: 700, fontSize: 15, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 10 }}>
+              <svg width="20" height="20" viewBox="0 0 48 48" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9.1 3.6l6.8-6.8C35.8 2.4 30.3 0 24 0 14.6 0 6.5 5.4 2.6 13.2l7.9 6.1C12.4 13.6 17.7 9.5 24 9.5z"/><path fill="#4285F4" d="M46.5 24.5c0-1.6-.1-3.1-.4-4.5H24v9h12.7c-.6 3-2.3 5.5-4.8 7.2l7.6 5.9c4.4-4.1 7-10.1 7-17.6z"/><path fill="#FBBC05" d="M10.5 28.7A14.5 14.5 0 0 1 9.5 24c0-1.6.3-3.2.9-4.7l-7.9-6.1A24 24 0 0 0 0 24c0 3.9.9 7.5 2.6 10.8l7.9-6.1z"/><path fill="#34A853" d="M24 48c6.5 0 11.9-2.1 15.9-5.8l-7.6-5.9c-2.1 1.4-4.9 2.3-8.3 2.3-6.3 0-11.6-4.1-13.5-9.8l-7.9 6.1C6.5 42.6 14.6 48 24 48z"/></svg>
+              Continuer avec Google
+            </button>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, color: C.muted, fontSize: 12, margin: "18px 0" }}>
+              <span style={{ flex: 1, height: 1, background: C.border }} />ou<span style={{ flex: 1, height: 1, background: C.border }} />
+            </div>
+            <label htmlFor="kbs-mail" style={{ display: "block", fontSize: 12.5, color: C.muted, fontWeight: 600, marginBottom: 6 }}>Ton adresse Gmail</label>
+            <input id="kbs-mail" type="email" inputMode="email" autoComplete="email" placeholder="nom@gmail.com" value={mail}
+              onChange={e => { setMail(e.target.value); setAuthMsg(null); }}
+              onKeyDown={e => { if (e.key === "Enter") signUpLink(); }}
+              style={{ ...inputStyle, height: 52, fontSize: 16 }} />
+            <button onClick={signUpLink} disabled={authBusy} className="kbs-tap" style={{ ...btnGold, width: "100%", height: 54, marginTop: 14, fontSize: 15, opacity: authBusy ? .6 : 1 }}>Recevoir le lien d'inscription</button>
+            {authMsg && <div role="status" style={{ marginTop: 14, fontSize: 13, lineHeight: 1.5, borderRadius: 14, padding: "12px 14px", background: authMsg.ok ? "rgba(92,192,140,.12)" : "rgba(221,106,84,.12)", color: authMsg.ok ? C.greenLight : C.rustLight }}>{authMsg.text}</div>}
+          </>)}
+        </>) : (<>
         <div style={{ fontFamily: "Archivo, sans-serif", fontWeight: 800, fontSize: 22 }}>Qui se connecte ?</div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 8, marginTop: 14 }}>
           {team.map(m => (
@@ -2316,6 +2395,7 @@ function LoginScreen({ onUnlock, codes, team }) {
         <div style={{ color: C.muted, textAlign: "center", fontSize: 12, marginTop: 8 }}>Chaque membre a son code. Le code général de l'outil et le code maître fonctionnent aussi.</div>
 
         <button onClick={tryUnlock} className="kbs-tap" style={{ ...btnGold, width: "100%", height: 54, marginTop: 20, fontSize: 15 }}>Entrer</button>
+        </>)}
 
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 24, background: "rgba(92,192,140,.12)", borderRadius: 16, padding: "12px 14px", fontSize: 12.5, lineHeight: 1.45 }}>
           <Shield size={20} color={C.greenLight} style={{ flexShrink: 0 }} />
@@ -5228,8 +5308,130 @@ function TabFormation({ team, codes, guides, formationLiens }) {
 }
 
 /* ---------------------------------- TAB: ADMINISTRATION ---------------------------------- */
-/* ---------------------------------- TAB: CAISSE PERSO (privée CEO, sous Administration) ---------------------------------- */
-function TabCaissePerso({ caisse, setCaisse }) {
+/* ---------------------------------- CAISSE PERSO : une caisse privee par membre ---------------------------------- */
+// Chaque membre a sa propre caisse, ouverte uniquement avec SON code.
+// - CEO : cle historique "kbs:caisse" (donnees deja saisies conservees).
+// - Autres membres : cle "kbs:caisse:<id membre>" (une ligne par personne, pour que
+//   l'enregistrement de l'un n'ecrase jamais la caisse d'un autre).
+// Code d'ouverture : le code personnel du membre, jusqu'a ce qu'il choisisse son
+// propre code caisse (stocke chiffre dans sa caisse, invisible dans Administration).
+const CAISSE_OWNER_LEGACY = "ceo";
+const caisseKey = (id) => id === CAISSE_OWNER_LEGACY ? "kbs:caisse" : `kbs:caisse:${id}`;
+async function hashCaisseCode(code) {
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode("kbs-caisse:" + normCode(code)));
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, "0")).join("");
+}
+
+function CaissePersoAccess({ team, currentUser, ceoCaisse, setCeoCaisse }) {
+  const [who, setWho] = useState(currentUser && team.some(m => m.id === currentUser) ? currentUser : (team[0]?.id || ""));
+  const [input, setInput] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [openId, setOpenId] = useState(null);      // membre dont la caisse est ouverte
+  const [data, setData] = useState(null);          // caisse ouverte (membres hors CEO)
+  const [saveErr, setSaveErr] = useState("");
+  const [changing, setChanging] = useState(false);
+  const [newCode, setNewCode] = useState("");
+  const [newCode2, setNewCode2] = useState("");
+  const [codeMsg, setCodeMsg] = useState(null);
+  const member = team.find(m => m.id === who);
+  const owner = team.find(m => m.id === openId);
+  const isLegacy = openId === CAISSE_OWNER_LEGACY;
+  const caisse = isLegacy ? (ceoCaisse || { ops: [], debts: [] }) : data;
+
+  function update(next) {
+    if (isLegacy) { setCeoCaisse(next); return; }
+    setData(next);
+    saveShared(caisseKey(openId), next).then(err => setSaveErr(err || ""));
+  }
+
+  async function tryOpen() {
+    if (!member || !normCode(input)) { setError("Entre ton code."); return; }
+    setBusy(true); setError("");
+    let value;
+    if (member.id === CAISSE_OWNER_LEGACY) value = ceoCaisse || { ops: [], debts: [] };
+    else {
+      const fails = [];
+      value = await loadShared(caisseKey(member.id), { ops: [], debts: [] }, fails);
+      if (fails.length) { setBusy(false); setError("Lecture impossible. Vérifie ta connexion puis réessaie."); return; }
+    }
+    let ok;
+    if (value && value.pin) ok = (await hashCaisseCode(input)) === value.pin;
+    else ok = normCode(input) === normCode(member.code);
+    // Le code maitre reste le filet de securite du CEO, pour SA caisse uniquement.
+    if (!ok && member.id === CAISSE_OWNER_LEGACY) ok = normCode(input) === MASTER_CODE;
+    setBusy(false);
+    if (!ok) { setError("Code incorrect."); return; }
+    setData(member.id === CAISSE_OWNER_LEGACY ? null : { ops: [], debts: [], ...value });
+    setOpenId(member.id); setInput(""); setSaveErr("");
+  }
+
+  function lock() { setOpenId(null); setData(null); setChanging(false); setCodeMsg(null); setNewCode(""); setNewCode2(""); }
+
+  async function saveNewCode() {
+    const c = normCode(newCode);
+    if (c.length < 4) { setCodeMsg({ ok: false, text: "4 caractères minimum." }); return; }
+    if (c !== normCode(newCode2)) { setCodeMsg({ ok: false, text: "Les deux codes ne sont pas identiques." }); return; }
+    update({ ...caisse, pin: await hashCaisseCode(c) });
+    setNewCode(""); setNewCode2(""); setChanging(false);
+    setCodeMsg({ ok: true, text: "Nouveau code enregistré. Il servira désormais à ouvrir ta caisse." });
+  }
+
+  if (!openId || !caisse) {
+    const initials = (n) => { const w = (n || "?").trim().split(/\s+/); return (w.length > 1 ? w[0][0] + w[1][0] : w[0].slice(0, 2)).toUpperCase(); };
+    return (
+      <Card>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, fontFamily: "Archivo, sans-serif", fontWeight: 800, fontSize: 18 }}><Lock size={17} /> Caisse perso</div>
+        <div style={{ color: C.muted, fontSize: 12.5, marginTop: 6, lineHeight: 1.5 }}>Chacun a sa propre caisse : dépenses, entrées et dettes. Seule la personne qui a le code peut la voir.</div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(84px, 1fr))", gap: 8, marginTop: 14 }}>
+          {team.map(m => (
+            <button key={m.id} onClick={() => { setWho(m.id); setError(""); setInput(""); }} style={{ background: who === m.id ? "rgba(243,146,0,.10)" : C.cardAlt, border: `1.5px solid ${who === m.id ? C.gold : "transparent"}`, borderRadius: 14, padding: "10px 4px", display: "flex", flexDirection: "column", alignItems: "center", gap: 6, color: C.text, fontWeight: 600, fontSize: 12, cursor: "pointer", minWidth: 0 }}>
+              <span style={{ width: 34, height: 34, borderRadius: "50%", display: "grid", placeItems: "center", fontFamily: "Archivo, sans-serif", fontWeight: 800, fontSize: 13, color: "#011B45", background: m.color || C.gold }}>{initials(m.name)}</span>
+              <span style={{ maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.name}</span>
+            </button>
+          ))}
+        </div>
+        <label htmlFor="kbs-caisse-code" style={{ display: "block", fontSize: 12.5, color: C.muted, fontWeight: 600, margin: "16px 0 6px" }}>Code de {member ? member.name : "…"}</label>
+        <div style={{ display: "flex", gap: 8 }}>
+          <input id="kbs-caisse-code" type="password" placeholder="Code" value={input}
+            onChange={e => { setInput(e.target.value); setError(""); }}
+            onKeyDown={e => { if (e.key === "Enter") tryOpen(); }}
+            style={{ ...inputStyle, flex: 1, letterSpacing: 3, fontWeight: 700 }} />
+          <button onClick={tryOpen} disabled={busy} style={{ ...btnGold, width: "auto", padding: "0 18px", opacity: busy ? .6 : 1 }}>Ouvrir</button>
+        </div>
+        {error && <div style={{ color: C.rustLight, fontSize: 12.5, marginTop: 6 }}>{error}</div>}
+        <div style={{ color: C.muted, fontSize: 11.5, marginTop: 10, lineHeight: 1.5 }}>Première fois : utilise ton code personnel (celui de la connexion). Une fois dedans, tu peux choisir ton propre code caisse. Code oublié : le CEO peut le remettre à zéro dans Équipe.</div>
+      </Card>
+    );
+  }
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      <Card>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+          <div style={{ fontFamily: "Archivo, sans-serif", fontWeight: 800, fontSize: 17 }}>Caisse de {owner ? owner.name : "…"}</div>
+          <div style={{ display: "flex", gap: 7 }}>
+            <button onClick={() => { setChanging(!changing); setCodeMsg(null); }} style={{ ...iconBtn, padding: "7px 11px", display: "flex", alignItems: "center", gap: 5 }}><KeyRound size={13} /> Changer mon code</button>
+            <button onClick={lock} style={{ ...iconBtn, padding: "7px 11px", display: "flex", alignItems: "center", gap: 5 }}><Lock size={13} /> Fermer</button>
+          </div>
+        </div>
+        {changing && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 12 }}>
+            <input type="password" placeholder="Nouveau code (4 caractères min.)" value={newCode} onChange={e => { setNewCode(e.target.value); setCodeMsg(null); }} style={inputStyle} />
+            <input type="password" placeholder="Retape le nouveau code" value={newCode2} onChange={e => { setNewCode2(e.target.value); setCodeMsg(null); }} onKeyDown={e => { if (e.key === "Enter") saveNewCode(); }} style={inputStyle} />
+            <button onClick={saveNewCode} style={btnGold}><Save size={14} /> Enregistrer mon code</button>
+          </div>
+        )}
+        {codeMsg && <div style={{ fontSize: 12.5, marginTop: 8, color: codeMsg.ok ? C.greenLight : C.rustLight }}>{codeMsg.text}</div>}
+        {saveErr && <div style={{ fontSize: 12.5, marginTop: 8, color: C.rustLight }}>Pas enregistré : {saveErr}. Vérifie ta connexion.</div>}
+      </Card>
+      <TabCaissePerso caisse={caisse} setCaisse={update} ownerName={owner ? owner.name : ""} />
+    </div>
+  );
+}
+
+/* ---------------------------------- TAB: CAISSE PERSO (contenu d'une caisse) ---------------------------------- */
+function TabCaissePerso({ caisse, setCaisse, ownerName }) {
   const ops = caisse?.ops || [];
   const debts = caisse?.debts || [];
   const nowD = new Date();
@@ -5322,7 +5524,7 @@ function TabCaissePerso({ caisse, setCaisse }) {
   function genPDF() {
     const doc = new jsPDF({ unit: "mm", format: "a4" });
     const list = monthOps.slice().sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time));
-    doc.setFontSize(16); doc.setTextColor(1, 27, 69); doc.text("KBS — Caisse Perso", 14, 18);
+    doc.setFontSize(16); doc.setTextColor(1, 27, 69); doc.text("KBS — Caisse Perso" + (ownerName ? " — " + ownerName : ""), 14, 18);
     doc.setFontSize(11); doc.setTextColor(40, 40, 40); doc.text("Releve : " + monthLabel(viewMonth), 14, 26);
     autoTable(doc, {
       startY: 32,
@@ -5834,7 +6036,7 @@ function ArchStat({ label, value, color }) {
   );
 }
 
-function TabAdministration({ section, caisse, setCaisse, team, setTeam, codes, setCodes, onResetAll, onCloseMonth, onRestoreArchive, onBackupNow, onRestoreBackup, currentMonth, agency, setAgency, guides, setGuides, formationLiens, setFormationLiens, pricing, setPricing, commissionRate, setCommissionRate }) {
+function TabAdministration({ section, caisse, setCaisse, currentUser, team, setTeam, codes, setCodes, onResetAll, onCloseMonth, onRestoreArchive, onBackupNow, onRestoreBackup, currentMonth, agency, setAgency, guides, setGuides, formationLiens, setFormationLiens, pricing, setPricing, commissionRate, setCommissionRate }) {
   const [adminUnlocked, setAdminUnlocked] = useState(false);
   // Mois a archiver par defaut = le mois precedent (ex. aujourd'hui septembre -> "2026-08").
   const prevMonth = (() => { const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - 1); return d.toISOString().slice(0, 7); })();
@@ -5843,7 +6045,7 @@ function TabAdministration({ section, caisse, setCaisse, team, setTeam, codes, s
   const [closeMonthDone, setCloseMonthDone] = useState(false);
   const [form, setForm] = useState({ name: "", role: "", checklistText: "" });
   const [editingId, setEditingId] = useState(null);
-  const [editForm, setEditForm] = useState({ name: "", role: "", checklistText: "", code: "", commissionPct: "" });
+  const [editForm, setEditForm] = useState({ name: "", role: "", checklistText: "", code: "", email: "", commissionPct: "" });
   const [rateForm, setRateForm] = useState(commissionRate);
   const [rateSaved, setRateSaved] = useState(false);
   const [codesForm, setCodesForm] = useState(codes);
@@ -5878,14 +6080,30 @@ function TabAdministration({ section, caisse, setCaisse, team, setTeam, codes, s
   }
   function startEdit(m) {
     setEditingId(m.id);
-    setEditForm({ name: m.name, role: m.role, checklistText: (m.checklist || []).join(", "), code: m.code || autoCode(m.name),
+    setEditForm({ name: m.name, role: m.role, checklistText: (m.checklist || []).join(", "), code: m.code || autoCode(m.name), email: m.email || "",
       commissionPct: m.commissionPct != null ? m.commissionPct : commissionRate });
+  }
+  // Code caisse oublie : on retire le code choisi par le membre (son contenu n'est pas lu
+  // ni affiche ici). Sa caisse se rouvre ensuite avec son code personnel.
+  const [pinReset, setPinReset] = useState({});
+  async function resetCaissePin(m) {
+    if (!window.confirm(`Remettre à zéro le code caisse de ${m.name} ? Sa caisse s'ouvrira de nouveau avec son code personnel.`)) return;
+    const fails = [];
+    const value = await loadShared(caisseKey(m.id), null, fails);
+    let msg = "Fait ✓ : code personnel de nouveau valable";
+    if (fails.length) msg = "Échec : vérifie la connexion";
+    else if (value && value.pin) {
+      const { pin, ...rest } = value;
+      const err = await saveShared(caisseKey(m.id), rest);
+      if (err) msg = "Échec : " + err;
+    } else msg = "Pas de code caisse perso : son code personnel suffit";
+    setPinReset(r => ({ ...r, [m.id]: msg }));
   }
   function saveEdit(id) {
     const checklist = editForm.checklistText.split(",").map(s => s.trim()).filter(Boolean);
     const pctRaw = Number(editForm.commissionPct);
     const pct = Number.isFinite(pctRaw) && editForm.commissionPct !== "" ? Math.max(0, Math.min(100, pctRaw)) : commissionRate;
-    setTeam(team.map(m => m.id === id ? { ...m, name: editForm.name || m.name, role: editForm.role, code: editForm.code || m.code, commissionPct: pct, checklist } : m));
+    setTeam(team.map(m => m.id === id ? { ...m, name: editForm.name || m.name, role: editForm.role, code: editForm.code || m.code, email: (editForm.email || "").trim(), commissionPct: pct, checklist } : m));
     setEditingId(null);
   }
   async function saveRate() {
@@ -5944,6 +6162,9 @@ function TabAdministration({ section, caisse, setCaisse, team, setTeam, codes, s
     setResetDone(true);
     setTimeout(() => setResetDone(false), 2500);
   }
+
+  // Caisse perso : ouverte a tous, chacun avec son propre code (pas le code admin).
+  if (section === "adminCaisse") return <CaissePersoAccess team={team} currentUser={currentUser} ceoCaisse={caisse} setCeoCaisse={setCaisse} />;
 
   if (!adminUnlocked) {
     return (
@@ -6011,11 +6232,17 @@ function TabAdministration({ section, caisse, setCaisse, team, setTeam, codes, s
                       <input type="number" min="0" max="100" placeholder={`Commission (défaut ${commissionRate}%)`} value={editForm.commissionPct} onChange={e => setEditForm({ ...editForm, commissionPct: e.target.value })} style={{ ...inputStyle, flex: 1 }} />
                       <span style={{ fontSize: 13, color: C.muted }}>%</span>
                     </div>
+                    <input type="email" placeholder="Adresse Gmail (pour l'inscription Google)" value={editForm.email || ""} onChange={e => setEditForm({ ...editForm, email: e.target.value })} style={inputStyle} />
                     <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
                       <KeyRound size={14} color={C.muted} />
                       <CodeInput placeholder="Code personnel (checklist)" value={editForm.code} onChange={e => setEditForm({ ...editForm, code: e.target.value.toUpperCase() })} style={{ flex: 1 }} />
                     </div>
                     <button onClick={() => saveEdit(m.id)} style={btnGold}><Save size={14} /> Enregistrer</button>
+                    {m.id !== CAISSE_OWNER_LEGACY && (
+                      <button onClick={() => resetCaissePin(m)} style={{ ...iconBtn, padding: "8px 11px", display: "flex", alignItems: "center", gap: 5, justifyContent: "center" }}>
+                        <KeyRound size={13} /> {pinReset[m.id] || "Code caisse oublié : remettre à zéro"}
+                      </button>
+                    )}
                   </div>
                 )}
               </Card>
@@ -6258,8 +6485,6 @@ function TabAdministration({ section, caisse, setCaisse, team, setTeam, codes, s
         <button onClick={saveGuides} style={btnGold}><Save size={14} /> {guidesSaved ? "Enregistré ✓" : "Enregistrer les guides"}</button>
       </div>
       </>)}
-
-      {section === "adminCaisse" && <TabCaissePerso caisse={caisse} setCaisse={setCaisse} />}
 
       {section === "adminRecup" && <AdminRecuperation onRestoreArchive={onRestoreArchive} />}
 
