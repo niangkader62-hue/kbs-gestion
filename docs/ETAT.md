@@ -6,6 +6,22 @@ Les entrées les plus récentes sont en haut.
 
 ---
 
+## 2026-10-14 — Caisse perso pour chaque membre
+
+- Administration → **Caisse perso** n'est plus derrière le code admin : chaque
+  membre choisit son nom et entre **son** code ; il ne voit que sa caisse.
+- Données : CEO = `kbs:caisse` (inchangé) ; autres membres =
+  `kbs:caisse:<id>` (une ligne par personne, pas d'écrasement croisé).
+- Code d'ouverture : code personnel du membre jusqu'à ce qu'il clique
+  « Changer mon code » (code stocké haché dans sa caisse, invisible dans
+  Administration). Code maître accepté seulement pour la caisse du CEO.
+- Code oublié : Administration → Équipe → modifier → « Code caisse oublié :
+  remettre à zéro » (redevient le code personnel).
+- Sauvegardes : les caisses des membres sont incluses (`caissesPerso`).
+- La remise à zéro générale ne vide que la caisse du CEO (comme avant).
+
+---
+
 ## 2026-10-13 (suite 3) — Inscription avec Google / lien Gmail
 
 - Écran de connexion : onglets **Connexion** (code, inchangé) et **Inscription**.

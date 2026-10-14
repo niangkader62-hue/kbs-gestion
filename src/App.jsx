@@ -927,6 +927,12 @@ async function saveShared(key, value) {
   }
 }
 
+// Caisses perso des membres (hors CEO) pour les sauvegardes : { "kbs:caisse:<id>": {...} }.
+async function loadCaissesPerso() {
+  const rows = await loadByPrefix("kbs:caisse:");
+  return Object.fromEntries((rows || []).map(r => [r.key, r.value]));
+}
+
 /* ------------------------------ MISE A JOUR DE L'APPLICATION ------------------------------ */
 // Chaque publication produit un nouveau fichier /assets/index-XXXX.js. On relit index.html
 // sur le serveur (sans cache) : si le fichier annonce n'est plus celui charge, une nouvelle
@@ -1704,7 +1710,7 @@ function App() {
       const today = new Date().toISOString().slice(0, 10);
       const backupKey = `backup:${today}`;
       const existing = await loadShared(backupKey, null);
-      if (!existing) await saveShared(backupKey, { savedAt: new Date().toISOString(), kind: "jour", commissionRate: rate, ...d });
+      if (!existing) await saveShared(backupKey, { savedAt: new Date().toISOString(), kind: "jour", commissionRate: rate, ...d, caissesPerso: await loadCaissesPerso() });
       lastDailyBackupRef.current = today;
     })();
   }, [loadAttempt]);
@@ -1946,7 +1952,7 @@ function App() {
     const day = now.toISOString().slice(0, 10);
     const key = kind === "jour" ? `backup:${day}` : `backup:${kind}:${day}:${now.getTime()}`;
     const by = (team.find(m => m.id === currentUser) || {}).name || "";
-    return await saveShared(key, { savedAt: now.toISOString(), kind, by, ...snapshotRef.current });
+    return await saveShared(key, { savedAt: now.toISOString(), kind, by, ...snapshotRef.current, caissesPerso: await loadCaissesPerso() });
   }
   // Restaure une sauvegarde : copie de securite des donnees actuelles d'abord, puis
   // reecriture de chaque module et rechargement. Le mois en cours n'est pas touche.
@@ -1956,6 +1962,11 @@ function App() {
     for (const k of BACKUP_KEYS) {
       if (data[k] === undefined) continue;
       const err = await saveShared(`kbs:${k}`, data[k]);
+      if (err) return err;
+    }
+    for (const [k, v] of Object.entries(data.caissesPerso || {})) {
+      if (!k.startsWith("kbs:caisse:")) continue;
+      const err = await saveShared(k, v);
       if (err) return err;
     }
     window.location.reload();
@@ -2228,7 +2239,7 @@ function App() {
                 {tab === "formation" && <TabFormation team={team} codes={codes} guides={guides} formationLiens={formationLiens} />}
               </>
             )}
-            {category === "admin" && <TabAdministration section={tab} caisse={caisse} setCaisse={setCaisse} team={team} setTeam={setTeam} codes={codes} setCodes={setCodes} onResetAll={resetAllData} onCloseMonth={closeMonthManually} onRestoreArchive={restoreArchive} onBackupNow={backupNow} onRestoreBackup={restoreBackup} currentMonth={currentMonth()} agency={agency} setAgency={setAgency} guides={guides} setGuides={setGuides} formationLiens={formationLiens} setFormationLiens={setFormationLiens} pricing={pricing} setPricing={setPricing} commissionRate={commissionRate} setCommissionRate={setCommissionRate} />}
+            {category === "admin" && <TabAdministration section={tab} caisse={caisse} setCaisse={setCaisse} currentUser={currentUser} team={team} setTeam={setTeam} codes={codes} setCodes={setCodes} onResetAll={resetAllData} onCloseMonth={closeMonthManually} onRestoreArchive={restoreArchive} onBackupNow={backupNow} onRestoreBackup={restoreBackup} currentMonth={currentMonth()} agency={agency} setAgency={setAgency} guides={guides} setGuides={setGuides} formationLiens={formationLiens} setFormationLiens={setFormationLiens} pricing={pricing} setPricing={setPricing} commissionRate={commissionRate} setCommissionRate={setCommissionRate} />}
           </div>
         </div>
 
@@ -5297,8 +5308,130 @@ function TabFormation({ team, codes, guides, formationLiens }) {
 }
 
 /* ---------------------------------- TAB: ADMINISTRATION ---------------------------------- */
-/* ---------------------------------- TAB: CAISSE PERSO (privée CEO, sous Administration) ---------------------------------- */
-function TabCaissePerso({ caisse, setCaisse }) {
+/* ---------------------------------- CAISSE PERSO : une caisse privee par membre ---------------------------------- */
+// Chaque membre a sa propre caisse, ouverte uniquement avec SON code.
+// - CEO : cle historique "kbs:caisse" (donnees deja saisies conservees).
+// - Autres membres : cle "kbs:caisse:<id membre>" (une ligne par personne, pour que
+//   l'enregistrement de l'un n'ecrase jamais la caisse d'un autre).
+// Code d'ouverture : le code personnel du membre, jusqu'a ce qu'il choisisse son
+// propre code caisse (stocke chiffre dans sa caisse, invisible dans Administration).
+const CAISSE_OWNER_LEGACY = "ceo";
+const caisseKey = (id) => id === CAISSE_OWNER_LEGACY ? "kbs:caisse" : `kbs:caisse:${id}`;
+async function hashCaisseCode(code) {
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode("kbs-caisse:" + normCode(code)));
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, "0")).join("");
+}
+
+function CaissePersoAccess({ team, currentUser, ceoCaisse, setCeoCaisse }) {
+  const [who, setWho] = useState(currentUser && team.some(m => m.id === currentUser) ? currentUser : (team[0]?.id || ""));
+  const [input, setInput] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [openId, setOpenId] = useState(null);      // membre dont la caisse est ouverte
+  const [data, setData] = useState(null);          // caisse ouverte (membres hors CEO)
+  const [saveErr, setSaveErr] = useState("");
+  const [changing, setChanging] = useState(false);
+  const [newCode, setNewCode] = useState("");
+  const [newCode2, setNewCode2] = useState("");
+  const [codeMsg, setCodeMsg] = useState(null);
+  const member = team.find(m => m.id === who);
+  const owner = team.find(m => m.id === openId);
+  const isLegacy = openId === CAISSE_OWNER_LEGACY;
+  const caisse = isLegacy ? (ceoCaisse || { ops: [], debts: [] }) : data;
+
+  function update(next) {
+    if (isLegacy) { setCeoCaisse(next); return; }
+    setData(next);
+    saveShared(caisseKey(openId), next).then(err => setSaveErr(err || ""));
+  }
+
+  async function tryOpen() {
+    if (!member || !normCode(input)) { setError("Entre ton code."); return; }
+    setBusy(true); setError("");
+    let value;
+    if (member.id === CAISSE_OWNER_LEGACY) value = ceoCaisse || { ops: [], debts: [] };
+    else {
+      const fails = [];
+      value = await loadShared(caisseKey(member.id), { ops: [], debts: [] }, fails);
+      if (fails.length) { setBusy(false); setError("Lecture impossible. Vérifie ta connexion puis réessaie."); return; }
+    }
+    let ok;
+    if (value && value.pin) ok = (await hashCaisseCode(input)) === value.pin;
+    else ok = normCode(input) === normCode(member.code);
+    // Le code maitre reste le filet de securite du CEO, pour SA caisse uniquement.
+    if (!ok && member.id === CAISSE_OWNER_LEGACY) ok = normCode(input) === MASTER_CODE;
+    setBusy(false);
+    if (!ok) { setError("Code incorrect."); return; }
+    setData(member.id === CAISSE_OWNER_LEGACY ? null : { ops: [], debts: [], ...value });
+    setOpenId(member.id); setInput(""); setSaveErr("");
+  }
+
+  function lock() { setOpenId(null); setData(null); setChanging(false); setCodeMsg(null); setNewCode(""); setNewCode2(""); }
+
+  async function saveNewCode() {
+    const c = normCode(newCode);
+    if (c.length < 4) { setCodeMsg({ ok: false, text: "4 caractères minimum." }); return; }
+    if (c !== normCode(newCode2)) { setCodeMsg({ ok: false, text: "Les deux codes ne sont pas identiques." }); return; }
+    update({ ...caisse, pin: await hashCaisseCode(c) });
+    setNewCode(""); setNewCode2(""); setChanging(false);
+    setCodeMsg({ ok: true, text: "Nouveau code enregistré. Il servira désormais à ouvrir ta caisse." });
+  }
+
+  if (!openId || !caisse) {
+    const initials = (n) => { const w = (n || "?").trim().split(/\s+/); return (w.length > 1 ? w[0][0] + w[1][0] : w[0].slice(0, 2)).toUpperCase(); };
+    return (
+      <Card>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, fontFamily: "Archivo, sans-serif", fontWeight: 800, fontSize: 18 }}><Lock size={17} /> Caisse perso</div>
+        <div style={{ color: C.muted, fontSize: 12.5, marginTop: 6, lineHeight: 1.5 }}>Chacun a sa propre caisse : dépenses, entrées et dettes. Seule la personne qui a le code peut la voir.</div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(84px, 1fr))", gap: 8, marginTop: 14 }}>
+          {team.map(m => (
+            <button key={m.id} onClick={() => { setWho(m.id); setError(""); setInput(""); }} style={{ background: who === m.id ? "rgba(243,146,0,.10)" : C.cardAlt, border: `1.5px solid ${who === m.id ? C.gold : "transparent"}`, borderRadius: 14, padding: "10px 4px", display: "flex", flexDirection: "column", alignItems: "center", gap: 6, color: C.text, fontWeight: 600, fontSize: 12, cursor: "pointer", minWidth: 0 }}>
+              <span style={{ width: 34, height: 34, borderRadius: "50%", display: "grid", placeItems: "center", fontFamily: "Archivo, sans-serif", fontWeight: 800, fontSize: 13, color: "#011B45", background: m.color || C.gold }}>{initials(m.name)}</span>
+              <span style={{ maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.name}</span>
+            </button>
+          ))}
+        </div>
+        <label htmlFor="kbs-caisse-code" style={{ display: "block", fontSize: 12.5, color: C.muted, fontWeight: 600, margin: "16px 0 6px" }}>Code de {member ? member.name : "…"}</label>
+        <div style={{ display: "flex", gap: 8 }}>
+          <input id="kbs-caisse-code" type="password" placeholder="Code" value={input}
+            onChange={e => { setInput(e.target.value); setError(""); }}
+            onKeyDown={e => { if (e.key === "Enter") tryOpen(); }}
+            style={{ ...inputStyle, flex: 1, letterSpacing: 3, fontWeight: 700 }} />
+          <button onClick={tryOpen} disabled={busy} style={{ ...btnGold, width: "auto", padding: "0 18px", opacity: busy ? .6 : 1 }}>Ouvrir</button>
+        </div>
+        {error && <div style={{ color: C.rustLight, fontSize: 12.5, marginTop: 6 }}>{error}</div>}
+        <div style={{ color: C.muted, fontSize: 11.5, marginTop: 10, lineHeight: 1.5 }}>Première fois : utilise ton code personnel (celui de la connexion). Une fois dedans, tu peux choisir ton propre code caisse. Code oublié : le CEO peut le remettre à zéro dans Équipe.</div>
+      </Card>
+    );
+  }
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      <Card>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+          <div style={{ fontFamily: "Archivo, sans-serif", fontWeight: 800, fontSize: 17 }}>Caisse de {owner ? owner.name : "…"}</div>
+          <div style={{ display: "flex", gap: 7 }}>
+            <button onClick={() => { setChanging(!changing); setCodeMsg(null); }} style={{ ...iconBtn, padding: "7px 11px", display: "flex", alignItems: "center", gap: 5 }}><KeyRound size={13} /> Changer mon code</button>
+            <button onClick={lock} style={{ ...iconBtn, padding: "7px 11px", display: "flex", alignItems: "center", gap: 5 }}><Lock size={13} /> Fermer</button>
+          </div>
+        </div>
+        {changing && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 12 }}>
+            <input type="password" placeholder="Nouveau code (4 caractères min.)" value={newCode} onChange={e => { setNewCode(e.target.value); setCodeMsg(null); }} style={inputStyle} />
+            <input type="password" placeholder="Retape le nouveau code" value={newCode2} onChange={e => { setNewCode2(e.target.value); setCodeMsg(null); }} onKeyDown={e => { if (e.key === "Enter") saveNewCode(); }} style={inputStyle} />
+            <button onClick={saveNewCode} style={btnGold}><Save size={14} /> Enregistrer mon code</button>
+          </div>
+        )}
+        {codeMsg && <div style={{ fontSize: 12.5, marginTop: 8, color: codeMsg.ok ? C.greenLight : C.rustLight }}>{codeMsg.text}</div>}
+        {saveErr && <div style={{ fontSize: 12.5, marginTop: 8, color: C.rustLight }}>Pas enregistré : {saveErr}. Vérifie ta connexion.</div>}
+      </Card>
+      <TabCaissePerso caisse={caisse} setCaisse={update} ownerName={owner ? owner.name : ""} />
+    </div>
+  );
+}
+
+/* ---------------------------------- TAB: CAISSE PERSO (contenu d'une caisse) ---------------------------------- */
+function TabCaissePerso({ caisse, setCaisse, ownerName }) {
   const ops = caisse?.ops || [];
   const debts = caisse?.debts || [];
   const nowD = new Date();
@@ -5391,7 +5524,7 @@ function TabCaissePerso({ caisse, setCaisse }) {
   function genPDF() {
     const doc = new jsPDF({ unit: "mm", format: "a4" });
     const list = monthOps.slice().sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time));
-    doc.setFontSize(16); doc.setTextColor(1, 27, 69); doc.text("KBS — Caisse Perso", 14, 18);
+    doc.setFontSize(16); doc.setTextColor(1, 27, 69); doc.text("KBS — Caisse Perso" + (ownerName ? " — " + ownerName : ""), 14, 18);
     doc.setFontSize(11); doc.setTextColor(40, 40, 40); doc.text("Releve : " + monthLabel(viewMonth), 14, 26);
     autoTable(doc, {
       startY: 32,
@@ -5903,7 +6036,7 @@ function ArchStat({ label, value, color }) {
   );
 }
 
-function TabAdministration({ section, caisse, setCaisse, team, setTeam, codes, setCodes, onResetAll, onCloseMonth, onRestoreArchive, onBackupNow, onRestoreBackup, currentMonth, agency, setAgency, guides, setGuides, formationLiens, setFormationLiens, pricing, setPricing, commissionRate, setCommissionRate }) {
+function TabAdministration({ section, caisse, setCaisse, currentUser, team, setTeam, codes, setCodes, onResetAll, onCloseMonth, onRestoreArchive, onBackupNow, onRestoreBackup, currentMonth, agency, setAgency, guides, setGuides, formationLiens, setFormationLiens, pricing, setPricing, commissionRate, setCommissionRate }) {
   const [adminUnlocked, setAdminUnlocked] = useState(false);
   // Mois a archiver par defaut = le mois precedent (ex. aujourd'hui septembre -> "2026-08").
   const prevMonth = (() => { const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - 1); return d.toISOString().slice(0, 7); })();
@@ -5949,6 +6082,22 @@ function TabAdministration({ section, caisse, setCaisse, team, setTeam, codes, s
     setEditingId(m.id);
     setEditForm({ name: m.name, role: m.role, checklistText: (m.checklist || []).join(", "), code: m.code || autoCode(m.name), email: m.email || "",
       commissionPct: m.commissionPct != null ? m.commissionPct : commissionRate });
+  }
+  // Code caisse oublie : on retire le code choisi par le membre (son contenu n'est pas lu
+  // ni affiche ici). Sa caisse se rouvre ensuite avec son code personnel.
+  const [pinReset, setPinReset] = useState({});
+  async function resetCaissePin(m) {
+    if (!window.confirm(`Remettre à zéro le code caisse de ${m.name} ? Sa caisse s'ouvrira de nouveau avec son code personnel.`)) return;
+    const fails = [];
+    const value = await loadShared(caisseKey(m.id), null, fails);
+    let msg = "Fait ✓ : code personnel de nouveau valable";
+    if (fails.length) msg = "Échec : vérifie la connexion";
+    else if (value && value.pin) {
+      const { pin, ...rest } = value;
+      const err = await saveShared(caisseKey(m.id), rest);
+      if (err) msg = "Échec : " + err;
+    } else msg = "Pas de code caisse perso : son code personnel suffit";
+    setPinReset(r => ({ ...r, [m.id]: msg }));
   }
   function saveEdit(id) {
     const checklist = editForm.checklistText.split(",").map(s => s.trim()).filter(Boolean);
@@ -6013,6 +6162,9 @@ function TabAdministration({ section, caisse, setCaisse, team, setTeam, codes, s
     setResetDone(true);
     setTimeout(() => setResetDone(false), 2500);
   }
+
+  // Caisse perso : ouverte a tous, chacun avec son propre code (pas le code admin).
+  if (section === "adminCaisse") return <CaissePersoAccess team={team} currentUser={currentUser} ceoCaisse={caisse} setCeoCaisse={setCaisse} />;
 
   if (!adminUnlocked) {
     return (
@@ -6086,6 +6238,11 @@ function TabAdministration({ section, caisse, setCaisse, team, setTeam, codes, s
                       <CodeInput placeholder="Code personnel (checklist)" value={editForm.code} onChange={e => setEditForm({ ...editForm, code: e.target.value.toUpperCase() })} style={{ flex: 1 }} />
                     </div>
                     <button onClick={() => saveEdit(m.id)} style={btnGold}><Save size={14} /> Enregistrer</button>
+                    {m.id !== CAISSE_OWNER_LEGACY && (
+                      <button onClick={() => resetCaissePin(m)} style={{ ...iconBtn, padding: "8px 11px", display: "flex", alignItems: "center", gap: 5, justifyContent: "center" }}>
+                        <KeyRound size={13} /> {pinReset[m.id] || "Code caisse oublié : remettre à zéro"}
+                      </button>
+                    )}
                   </div>
                 )}
               </Card>
@@ -6328,8 +6485,6 @@ function TabAdministration({ section, caisse, setCaisse, team, setTeam, codes, s
         <button onClick={saveGuides} style={btnGold}><Save size={14} /> {guidesSaved ? "Enregistré ✓" : "Enregistrer les guides"}</button>
       </div>
       </>)}
-
-      {section === "adminCaisse" && <TabCaissePerso caisse={caisse} setCaisse={setCaisse} />}
 
       {section === "adminRecup" && <AdminRecuperation onRestoreArchive={onRestoreArchive} />}
 
