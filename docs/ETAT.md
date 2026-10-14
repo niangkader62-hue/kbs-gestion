@@ -6,6 +6,16 @@ Les entrées les plus récentes sont en haut.
 
 ---
 
+## 2026-10-14 (suite) — Nouveautés affichées à la mise à jour
+
+- `public/nouveautes.json` (version, titre, points) : **à mettre à jour à
+  chaque publication** (changer `version` pour que le message réapparaisse).
+- La bande orange « nouvelle version » liste ces points avant la mise à jour.
+- Après la mise à jour, une fenêtre « Nouveautés » s'affiche une fois
+  (mémorisée dans le navigateur, clé `kbs:newsSeen`).
+
+---
+
 ## 2026-10-14 — Caisse perso pour chaque membre
 
 - Administration → **Caisse perso** n'est plus derrière le code admin : chaque
